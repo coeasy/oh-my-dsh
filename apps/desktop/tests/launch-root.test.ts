@@ -28,12 +28,9 @@ describe('Harness launch root', () => {
         /\\/g,
         '/',
       ),
-      'C:/Users/me/AppData/Roaming/dsh-client-desktop',
+      'C:/Users/me/AppData/Roaming/my-dsh',
     )
-    assert.match(
-      desktopUserDataPath('linux', { XDG_CONFIG_HOME: '/home/me/.config' }),
-      /dsh-client-desktop$/,
-    )
+    assert.match(desktopUserDataPath('linux', { XDG_CONFIG_HOME: '/home/me/.config' }), /my-dsh$/)
   })
 
   it('creates the launch root idempotently', async () => {

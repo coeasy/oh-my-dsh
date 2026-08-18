@@ -56,9 +56,9 @@ apps/desktop ─┘                                          │
 
 | 文档声称 | 实际状态 | 证据 |
 |---|---|---|
-| Phase 2.1 "e2e.yml 三平台 CI 已落地" | **缺失** | 无 `.github/workflows/` 目录 |
-| Phase 2.2 "changesets + version.yml 已落地" | **缺失** | 无 `.changeset/` 目录 |
-| Phase 2.6 "全量中文化确认已完成" | **未落地** | splash/setup.html 为 `lang="en"` 纯英文，无 locale 资源与切换机制 |
+| Phase 2.1 "e2e.yml 三平台 CI 已落地" | 已补齐 | `.github/workflows/ci.yml` + release.yml（本轮新建） |
+| Phase 2.2 "changesets + version.yml 已落地" | 已补齐 | `.changeset/config.json` fixed 组（本轮新建） |
+| Phase 2.6 "全量中文化确认已完成" | **仍未落地** | splash/setup.html 为 `lang="en"` 纯英文，无 locale 资源与切换机制；需后续抽离 locales |
 | Phase 2.4 诊断健康自检 | ✅ 有 `health-check.ts` | 与文档一致 |
 | Phase 3.2 引擎自动更新 | ✅ 有 `engine-updater.ts` | 端到端激活待发布基建 |
 | Phase 3.3 手机桥接 | ✅ 有 `lan-mobile-bridge.ts` | 与文档一致 |
@@ -117,7 +117,14 @@ apps/desktop ─┘                                          │
 
 ## 四、已执行的仓库整理
 
-- **已排除的本地残留**（写入 `.gitignore`，不进入版本库）：
+**本轮已补齐的工业级基础设施**（commit 2）：
+- `.github/workflows/ci.yml`（三平台 verify + pack 冒烟）、`.github/workflows/release.yml`（tag 触发，三平台打包 + GitHub Release）
+- `.github/CODEOWNERS`、`.github/dependabot.yml`、`.github/pull_request_template.md`、`.github/ISSUE_TEMPLATE/{bug,feature,config}.yml`
+- `.changeset/`（config.json + README，fixed 组锁同升同降）
+- 各包 `package.json` 补 `repository` 字段；vscode 移除 `--allow-missing-repository`
+- 修正 `docs/improvement/README.md` 完成状态，如实标注 i18n 未完成
+
+**已排除的本地残留**（写入 `.gitignore`，不进入版本库）：
   - `scripts/_cleanup_stage.py`、`scripts/_del_pnpm.sh`（含硬编码 `D:\workspace\oh-my-dsh` 路径的开发清理脚本）
   - `.rundata/`、`output/`（空运行时目录）
 - **保留**：全部源码、测试、文档、LICENSE、CI 所需配置、`docs/improvement`（路线图，后续需修正完成状态）

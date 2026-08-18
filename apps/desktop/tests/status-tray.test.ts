@@ -9,11 +9,11 @@ function snapshot(phase: RuntimeSnapshot['phase']): RuntimeSnapshot {
 
 describe('status tray copy', () => {
   it('labels every runtime phase in Chinese', () => {
-    assert.equal(trayTooltip(snapshot('idle'), 'zh'), 'DeepSeek Harness · 未运行')
-    assert.equal(trayTooltip(snapshot('starting'), 'zh'), 'DeepSeek Harness · 正在启动')
-    assert.equal(trayTooltip(snapshot('ready'), 'zh'), 'DeepSeek Harness · 运行中')
-    assert.equal(trayTooltip(snapshot('stopping'), 'zh'), 'DeepSeek Harness · 正在退出')
-    assert.equal(trayTooltip(snapshot('failed'), 'zh'), 'DeepSeek Harness · 启动失败')
+    assert.equal(trayTooltip(snapshot('idle'), 'zh'), 'my-dsh · 未运行')
+    assert.equal(trayTooltip(snapshot('starting'), 'zh'), 'my-dsh · 正在启动')
+    assert.equal(trayTooltip(snapshot('ready'), 'zh'), 'my-dsh · 运行中')
+    assert.equal(trayTooltip(snapshot('stopping'), 'zh'), 'my-dsh · 正在退出')
+    assert.equal(trayTooltip(snapshot('failed'), 'zh'), 'my-dsh · 启动失败')
   })
 
   it('exposes show, restart, and quit actions', () => {

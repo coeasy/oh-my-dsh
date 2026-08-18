@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a bug in the my-dsh client (VS Code / Cursor extension or Electron desktop app)
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Before filing, check [SUPPORT.md](../../SUPPORT.md) and search existing issues.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Describe the bug and the expected behavior.
+      placeholder: "When I ... it crashes instead of ..."
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Install the VSIX / run the desktop app
+        2. Open a workspace
+        3. Trigger ...
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      options:
+        - VS Code extension
+        - Cursor extension
+        - Electron desktop
+        - Other / not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Client version
+      description: e.g. 0.1.0 (see CHANGELOG.md / about dialog)
+    validations:
+      required: false
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: e.g. Windows 11 x64, macOS 14, Ubuntu 24.04
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / diagnostics
+      description: Paste the exported diagnostics zip content or relevant log lines. Redact any API keys (`sk-...`).
+      render: text
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context

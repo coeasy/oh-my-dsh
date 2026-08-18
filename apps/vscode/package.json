@@ -2,6 +2,10 @@
   "name": "my-dsh-vscode",
   "displayName": "my-dsh",
   "description": "my-dsh VS Code / Cursor client for DeepSeek Harness.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/coeasy/oh-my-dsh.git"
+  },
   "version": "0.1.0",
   "private": true,
   "publisher": "dsh-client",
@@ -23,7 +27,7 @@
   "license": "MIT",
   "scripts": {
     "compile": "esbuild src/extension.ts --bundle --external:vscode --platform=node --format=esm --outfile=out/extension.js && node ../../scripts/copy-plugin.mjs out",
-    "pack": "npm run compile && vsce package --no-dependencies --allow-missing-repository",
+    "pack": "npm run compile && vsce package --no-dependencies",
     "test": "node --experimental-strip-types --test tests/panel.test.ts tests/runtime-mode.test.ts"
   },
   "contributes": {

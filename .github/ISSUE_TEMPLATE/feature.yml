@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest an enhancement for the my-dsh client
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. See [docs/improvement/README.md](../../docs/improvement/README.md) for the current roadmap.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What is missing or frustrating today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature and how it should behave.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Applies to
+      options:
+        - VS Code / Cursor extension
+        - Electron desktop
+        - Both / shared runtime
+        - Build / packaging / CI
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

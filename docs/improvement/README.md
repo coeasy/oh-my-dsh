@@ -47,10 +47,11 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | Phase 1 工程清理 | ✅ 已完成 | runtime 陈旧产物已清、图标接入、README 去重、hygiene 增强、兼容矩阵 |
-| Phase 2.1 E2E 骨架 | ✅ 已落地 | `tests/e2e/` + `e2e.yml` 三平台 CI |
-| Phase 2.2 changesets | ✅ 已落地 | `.changeset/` + `version.yml` |
+| Phase 2.1 E2E 骨架 | ✅ 已落地 | `tests/e2e/` + `.github/workflows/ci.yml` 三平台矩阵（pack 冒烟） |
+| Phase 2.2 changesets | ✅ 已落地 | `.changeset/` fixed 组锁同升同降 |
 | Phase 2.4 诊断健康自检 | ✅ 已落地 | `health-check.ts` + 单测 |
-| Phase 2.6 全量中文化 | ✅ 确认已完成 | 壳层 main/托盘/splash/setup/手机桥接页全双语，SPA 返回 zh-CN |
+| Phase 2.6 全量中文化 | ⏳ 部分 | 手机桥接页双语；壳层 main/托盘/splash/setup 仍为英文，待抽离 locales |
+| CI 基础设施 | ✅ 已落地 | `.github/`（ci.yml、release.yml、CODEOWNERS、dependabot、PR/Issue 模板）
 | **白屏深度修复** | ✅ 已修复并验证 | 见 [white-screen-fix.md](white-screen-fix.md)；flatten 漏包导致引擎崩溃 |
 | Phase 2.3 代码签名 | ⏳ 待外部证书 | 需 Windows EV + Apple Developer 账号 |
 | Phase 3.2 引擎自动更新 | 🔵 已实现 | `engine-updater.ts`（下载/校验/激活/回滚，7 测试）+ main.ts IPC 集成；端到端激活待发布基建 |

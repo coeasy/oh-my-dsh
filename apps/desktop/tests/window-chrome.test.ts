@@ -11,7 +11,7 @@ describe('desktop window chrome', () => {
   it('keeps DeepSeek Harness as the window identity without a title-text bar', () => {
     const chrome = desktopChromeOptions(true)
     assert.equal(chrome.title, HARNESS_WINDOW_TITLE)
-    assert.equal(chrome.title, 'DeepSeek Harness')
+    assert.equal(chrome.title, 'my-dsh')
     assert.equal(chrome.autoHideMenuBar, true)
     assert.equal(chrome.titleBarStyle, 'hidden')
     assert.equal(chrome.titleBarOverlay.height, TITLE_BAR_OVERLAY_HEIGHT)

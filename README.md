@@ -4,6 +4,27 @@ Unofficial VS Code / Cursor extension and Electron desktop client for [DeepSeek 
 
 Both apps share `@dsh/client-runtime` and the Cordis plugin `@dsh/plugin-embedded-client`. This tree does not fork the Harness kernel and **does not store** Harness sources. The default clone path `deepseek-harness/` is gitignored. Builds fetch [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (GitHub **stable**, else latest release). [`engine.lock.json`](engine.lock.json) is the pin / fallback.
 
+## Upstream engine (how DeepSeek Harness is referenced)
+
+This repo does **not** vendor or fork the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) kernel. The reference is pinned in [`engine.lock.json`](engine.lock.json):
+
+```json
+{
+  "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
+  "ref": "dsh-v0.1.0-rc.7",
+  "pinnedCommit": "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca"
+}
+```
+
+Builds fetch the pinned ref into the gitignored `deepseek-harness/` clone (`pnpm fetch:engine`, run automatically by `build-clients`). The lock is the final fallback when GitHub releases / `git ls-remote` cannot be reached. To try another upstream version:
+
+```powershell
+$env:DSH_ENGINE_REF = "master"        # or any tag
+pnpm fetch:engine
+```
+
+A git submodule was deliberately **not** used: the clone is read-only build input, fetched per-host-OS, and never committed back.
+
 ## Improvement roadmap
 
 See [docs/improvement/README.md](docs/improvement/README.md) for the phased improvement plan (engineering hygiene → quality hardening → feature expansion → long-term).
@@ -14,6 +35,7 @@ Each OS packs its own native desktop artifacts (Windows exe, macOS dmg, Linux Ap
 
 | 操作 | Windows | macOS / Linux |
 |---|---|---|
+| **本地一键构建（推荐）** | `build-local.cmd` | `./build-local.sh` |
 | 构建（stable） | `build-clients.cmd` | `./build-clients.sh` |
 | 构建（latest release，含 rc） | `build-clients.cmd latest` | `./build-clients.sh latest` |
 | 构建（lock 钉死） | `build-clients.cmd lock` | `./build-clients.sh lock` |
@@ -21,6 +43,8 @@ Each OS packs its own native desktop artifacts (Windows exe, macOS dmg, Linux Ap
 | 安装 VSIX 到 Cursor / VS Code | `install-clients.cmd` | `./install-clients.sh` |
 
 `$env:DSH_INSTALL = '1'` 可在打包结束后直接安装 VSIX。`$env:DSH_INSTALL_DESKTOP = '1'` 会再启动 NSIS。
+
+`build-local.*` is the recommended shortcut on slow networks: it pre-configures the GitHub clone proxy (`ghfast.top`), the npm registry (`npmmirror`) and the Electron mirror, then builds the pinned `lock` channel by default. Disable/override with `DSH_GH_PROXY=0`, `DSH_REGISTRY`, `DSH_ELECTRON_MIRROR`.
 
 等价 pnpm（详见 [docs/one-click-clients.md](docs/one-click-clients.md)）：
 
@@ -83,6 +107,10 @@ deepseek-harness/         gitignored local clone (not in git)
 Protocol: `dsh web` Host `/api` + WebSocket. `--patch` plugin `name` is a `file:` URL. Ready files stay under the system temp directory. `DSH_RUNTIME_URL` is `https:` only.
 
 LAN phone bridge is off until **Connect Phone**. Same private Wi-Fi, QR pair, allowlisted RPC.
+
+## Internationalization (i18n)
+
+The client shell (tray, setup, splash, phone bridge) and docs are bilingual (English / 简体中文) and follow the host OS language automatically. See [docs/i18n.md](docs/i18n.md). 中文版见 [README.zh-CN.md](README.zh-CN.md)。
 
 ## License
 

@@ -5,10 +5,23 @@
   "type": "module",
   "license": "MIT",
   "packageManager": "pnpm@10.0.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "keytar",
+      "@vscode/vsce-sign"
+    ]
+  },
   "engines": {
     "node": ">=22"
   },
   "description": "my-dsh desktop client and VS Code extension for DeepSeek Harness.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/coeasy/oh-my-dsh.git"
+  },
   "scripts": {
     "hygiene": "node scripts/check-hygiene.mjs",
     "typecheck": "tsc --noEmit",
