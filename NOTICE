@@ -1,0 +1,17 @@
+dsh-client-pack
+Copyright (c) 2026 dsh-client-pack contributors
+
+This repository is an unofficial, out-of-tree client pack for DeepSeek Harness.
+It is not published by, affiliated with, or endorsed by DeepSeek.
+"DeepSeek" and "DeepSeek Harness" are trademarks of their respective owners.
+
+Bundled third-party software (desktop installer / portable / zip):
+
+- DeepSeek Harness (MIT), https://github.com/deepseek-ai/deepseek-harness
+  Pin: see engine.lock.json. The LICENSE from that project is redistributed
+  next to the packaged application.
+- Node.js (MIT), https://nodejs.org
+- Electron (MIT), https://www.electronjs.org
+
+The complete license texts for those components travel with the release
+artifacts (LICENSE, NOTICE, and resources/runtime/harness LICENSE files).

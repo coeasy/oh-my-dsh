@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": false,
+    "types": ["node"],
+    "noUnusedLocals": true,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": [
+    "apps/desktop/src/**/*.ts",
+    "apps/desktop/tests/**/*.ts",
+    "apps/vscode/src/**/*.ts",
+    "apps/vscode/tests/**/*.ts",
+    "plugins/**/*.ts",
+    "packages/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "deepseek-harness",
+    "apps/desktop/dist",
+    "apps/desktop/dist-release",
+    "apps/desktop/out",
+    "apps/vscode/out",
+    "tests/generated",
+    "src/generated"
+  ]
+}

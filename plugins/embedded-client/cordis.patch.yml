@@ -1,0 +1,8 @@
+# TEMPLATE — launchHost writes a temp overlay at spawn time.
+# dsh --patch resolves plugin `name` as an absolute module path, not an npm package.
+# See packages/client-runtime/src/patch.ts (buildPatchYaml).
+
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 0

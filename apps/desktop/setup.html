@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>DeepSeek Harness</title>
+    <style>
+      :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; margin: 0; overflow: auto; }
+      body {
+        display: grid;
+        place-items: center;
+        color: #17181a;
+        background:
+          radial-gradient(1200px 600px at 50% -10%, rgba(77, 107, 254, 0.14), transparent 55%),
+          #f8f8f6;
+      }
+      main { width: min(560px, 100%); margin: 0; padding: 48px 28px; display: grid; gap: 18px; }
+      h1 { margin: 0; font-size: 22px; font-weight: 650; }
+      p, label { margin: 0; color: #5c6068; font-size: 14px; line-height: 1.5; }
+      .note { font-size: 12px; }
+      input { width: 100%; padding: 10px 12px; border: 1px solid #d6d8de; border-radius: 10px; font: inherit; }
+      .row { display: flex; gap: 8px; }
+      .row input { flex: 1; }
+      button { appearance: none; border: 0; border-radius: 10px; padding: 10px 14px; font: inherit; cursor: pointer; }
+      .secondary { color: #202124; background: #eceef3; }
+      .primary { color: #fff; background: #3b5bdb; }
+      .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+      @media (prefers-color-scheme: dark) {
+        body {
+          color: #f3f4f6;
+          background:
+            radial-gradient(1200px 600px at 50% -10%, rgba(77, 107, 254, 0.2), transparent 55%),
+            #141416;
+        }
+        p, label { color: #9ca0a8; }
+        input { border-color: #3a3d45; background: #1c1d21; color: inherit; }
+        .secondary { color: #f3f4f6; background: #2a2c33; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="title">Set up DeepSeek Harness</h1>
+      <p id="unofficial">Unofficial client. Not published by DeepSeek.</p>
+      <label id="folderLabel" for="folder">Workspace folder</label>
+      <div class="row">
+        <input id="folder" readonly />
+        <button class="secondary" id="browse" type="button">Browse</button>
+      </div>
+      <label id="keyLabel" for="key">DeepSeek API key</label>
+      <input id="key" type="password" autocomplete="off" />
+      <p class="note" id="keyHint">Stored in the app data .env. You can skip and add it later.</p>
+      <div class="actions">
+        <button class="secondary" id="skip" type="button">Skip key</button>
+        <button class="primary" id="continue" type="button">Continue</button>
+      </div>
+    </main>
+    <script>
+      const zh = navigator.language.toLowerCase().startsWith('zh')
+      if (zh) {
+        document.getElementById('title').textContent = '设置 DeepSeek Harness'
+        document.getElementById('unofficial').textContent = '非官方客户端，并非由 DeepSeek 发布。'
+        document.getElementById('folderLabel').textContent = '工作区文件夹'
+        document.getElementById('browse').textContent = '浏览'
+        document.getElementById('keyLabel').textContent = 'DeepSeek API 密钥'
+        document.getElementById('keyHint').textContent = '写入应用数据目录的 .env。可跳过，稍后补上。'
+        document.getElementById('skip').textContent = '跳过密钥'
+        document.getElementById('continue').textContent = '继续'
+      }
+      const api = window.dshDesktop
+      async function boot() {
+        const defaults = await api.setupDefaults()
+        document.getElementById('folder').value = defaults.workspace || ''
+        if (defaults.hasKey) {
+          document.getElementById('key').placeholder = zh ? '已配置' : 'Already configured'
+        }
+      }
+      document.getElementById('browse').addEventListener('click', async () => {
+        const folder = await api.pickFolder()
+        if (folder) document.getElementById('folder').value = folder
+      })
+      async function finish(includeKey) {
+        await api.completeSetup({
+          workspace: document.getElementById('folder').value,
+          apiKey: includeKey ? document.getElementById('key').value : '',
+        })
+      }
+      document.getElementById('continue').addEventListener('click', () => finish(true))
+      document.getElementById('skip').addEventListener('click', () => finish(false))
+      boot()
+    </script>
+  </body>
+</html>

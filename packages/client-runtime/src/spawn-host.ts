@@ -1,0 +1,203 @@
+import { spawn } from 'node:child_process'
+import {
+  createWriteStream,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { assertLoopbackUrl } from './loopback.ts'
+import { assertLauncherUsable, resolveDirectSpawn } from './launcher-check.ts'
+import { assertAbsolutePluginPath, assertSafeReadyPath } from './paths.ts'
+import { spawnArgv, buildWebArgs, normalizeDshCommand, quoteWinArg } from './spawn-args.ts'
+import { buildPatchYaml } from './patch.ts'
+import { parseReadyFile, parseStdoutUrl, urlToPort } from './parse.ts'
+import { defaultCacheDir, resolveRuntime, resolveRuntimeMode } from './resolve-runtime.ts'
+import { ensureDownloadedRuntime } from './download.ts'
+import { shutdownLadder, killProcessTree, killExecutable, engineStopPlan } from './shutdown.ts'
+import type { ChildLike, LaunchOptions, RunningHost } from './types.ts'
+
+function defaultPluginPath(): string {
+  const compiled = fileURLToPath(
+    new URL('../../../plugins/embedded-client/out/index.js', import.meta.url),
+  )
+  if (existsSync(compiled)) return compiled
+  return fileURLToPath(new URL('../../../plugins/embedded-client/src/index.ts', import.meta.url))
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function reapEngineProcess(
+  child: ChildLike & { pid?: number },
+  execPath: string | undefined,
+): Promise<void> {
+  if (engineStopPlan() === 'tree-kill') {
+    if (child.pid) killProcessTree(child.pid)
+    if (execPath) killExecutable(execPath)
+    return
+  }
+  await shutdownLadder(child)
+  if (child.pid) killProcessTree(child.pid)
+  if (execPath) killExecutable(execPath)
+}
+
+function closeLog(stream: ReturnType<typeof createWriteStream> | undefined): Promise<void> {
+  if (!stream) return Promise.resolve()
+  return new Promise((resolve) => {
+    stream.end(() => resolve())
+  })
+}
+
+export async function waitForReady(options: {
+  readyFile: string
+  stdoutBuffer: { text: string }
+  timeoutMs: number
+  readFile?: (path: string) => string
+  isDead?: () => { dead: boolean; detail?: string }
+}): Promise<{ url: string; port: number }> {
+  const readFile = options.readFile ?? ((path: string) => readFileSync(path, 'utf8'))
+  const start = Date.now()
+  while (Date.now() - start < options.timeoutMs) {
+    try {
+      const payload = parseReadyFile(readFile(options.readyFile))
+      return { url: payload.url, port: payload.port }
+    } catch {
+      const fromStdout = parseStdoutUrl(options.stdoutBuffer.text)
+      if (fromStdout) return { url: fromStdout, port: urlToPort(fromStdout) }
+    }
+    const dead = options.isDead?.()
+    if (dead?.dead) {
+      const tail = options.stdoutBuffer.text.trim().slice(-1500)
+      throw new Error(
+        `dsh web exited before ready${dead.detail ? `: ${dead.detail}` : ''}${tail ? `\n${tail}` : ''}`,
+      )
+    }
+    await wait(50)
+  }
+  const fromStdout = parseStdoutUrl(options.stdoutBuffer.text)
+  if (fromStdout) return { url: fromStdout, port: urlToPort(fromStdout) }
+  const tail = options.stdoutBuffer.text.trim().slice(-1500)
+  throw new Error(
+    `dsh web did not become ready within ${options.timeoutMs}ms${tail ? `\n${tail}` : ''}`,
+  )
+}
+
+export async function launchHost(options: LaunchOptions): Promise<RunningHost> {
+  const env: NodeJS.ProcessEnv = {
+    ...(options.env ?? process.env),
+  }
+  const mode = resolveRuntimeMode(options.mode, env)
+  const resolved =
+    mode === 'download'
+      ? {
+          mode,
+          command: await ensureDownloadedRuntime({
+            url: options.downloadUrl || env.DSH_RUNTIME_URL || '',
+            cacheDir: options.cacheDir || defaultCacheDir(env),
+          }),
+        }
+      : resolveRuntime({
+          mode,
+          dshCommand: options.dshCommand,
+          env,
+        })
+  const readyFile = assertSafeReadyPath(
+    options.readyFile || join(mkdtempSync(join(tmpdir(), 'dsh-ready-')), 'ready.json'),
+  )
+  writeFileSync(readyFile, '', 'utf8')
+  const generatedDir = mkdtempSync(join(tmpdir(), 'dsh-patch-'))
+  const pluginPath = assertAbsolutePluginPath(options.pluginPath || defaultPluginPath())
+  const patchPath = options.patchPath || join(generatedDir, 'cordis.patch.yml')
+  if (!options.patchPath) {
+    writeFileSync(patchPath, buildPatchYaml(pluginPath), 'utf8')
+  }
+  const webArgs = buildWebArgs(patchPath, options.extraArgs)
+  env.DSH_READY_FILE = readyFile
+  env.DSH_WORKSPACE_CWD = options.workspaceCwd
+  const command = normalizeDshCommand(resolved.command)
+  const launcherIo = {
+    exists: existsSync,
+    read: (path: string) => readFileSync(path, 'utf8'),
+  }
+  assertLauncherUsable(command, launcherIo)
+  const direct = resolveDirectSpawn(command, launcherIo)
+  const child = direct
+    ? spawn(direct.exec, [...direct.prefixArgs, ...webArgs], {
+        cwd: options.workspaceCwd,
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: false,
+        windowsHide: true,
+        detached: false,
+      })
+    : spawn(process.platform === 'win32' ? quoteWinArg(command) : command, spawnArgv(webArgs), {
+        cwd: options.workspaceCwd,
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: process.platform === 'win32',
+        windowsVerbatimArguments: process.platform === 'win32',
+        windowsHide: true,
+        detached: false,
+      })
+  const stdoutBuffer = { text: '' }
+  const logStream = options.logPath
+    ? (mkdirSync(dirname(options.logPath), { recursive: true }),
+      createWriteStream(options.logPath, { flags: 'a' }))
+    : undefined
+  const appendLog = (source: 'stdout' | 'stderr', chunk: Buffer) => {
+    const text = chunk.toString('utf8')
+    stdoutBuffer.text += text
+    logStream?.write(`[${source}] ${text}`)
+  }
+  child.stdout?.on('data', (buf: Buffer) => appendLog('stdout', buf))
+  child.stderr?.on('data', (buf: Buffer) => appendLog('stderr', buf))
+  let spawnErr: Error | undefined
+  let exitInfo: { code: number | null; signal: NodeJS.Signals | null } | undefined
+  child.once('error', (err) => {
+    spawnErr = err
+  })
+  child.once('exit', (code, signal) => {
+    exitInfo = { code, signal }
+  })
+  const timeoutMs = options.readyTimeoutMs ?? 30_000
+  try {
+    const ready = await waitForReady({
+      readyFile,
+      stdoutBuffer,
+      timeoutMs,
+      isDead: () => {
+        if (spawnErr) return { dead: true, detail: spawnErr.message }
+        if (exitInfo) return { dead: true, detail: `exit ${exitInfo.code ?? exitInfo.signal}` }
+        return { dead: false }
+      },
+    })
+    assertLoopbackUrl(ready.url)
+    return {
+      url: ready.url,
+      port: ready.port,
+      pid: child.pid ?? 0,
+      execPath: direct?.exec,
+      async stop() {
+        await reapEngineProcess(child as ChildLike, direct?.exec)
+        await closeLog(logStream)
+        try {
+          rmSync(readyFile, { force: true })
+          rmSync(generatedDir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      },
+    }
+  } catch (err) {
+    await reapEngineProcess(child as ChildLike, direct?.exec)
+    await closeLog(logStream)
+    throw err
+  }
+}

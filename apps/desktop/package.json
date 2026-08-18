@@ -1,0 +1,25 @@
+{
+  "name": "@dsh/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "dsh-client-pack contributors",
+  "description": "my-dsh desktop client for DeepSeek Harness.",
+  "main": "./out/main.js",
+  "scripts": {
+    "compile": "esbuild src/main.ts --bundle --external:electron --platform=node --format=esm --outfile=out/main.js && esbuild src/preload.ts --bundle --external:electron --platform=node --format=cjs --outfile=out/preload.cjs && node ../../scripts/copy-plugin.mjs out",
+    "start": "npm run compile && electron .",
+    "pack": "npm run compile && node ../../scripts/pack-desktop.mjs",
+    "test": "node --experimental-strip-types --test tests/launch-config.test.ts tests/pack-manifest.test.ts tests/engine-launcher.test.ts tests/materialize-links.test.ts tests/flatten-harness.test.ts tests/copy-harness.test.ts tests/launch-root.test.ts tests/security-policy.test.ts tests/window-navigation.test.ts tests/harness-env.test.ts tests/lan-mobile-bridge.test.ts tests/lan-mobile-pages.test.ts tests/desktop-settings.test.ts tests/workspace-choice.test.ts tests/api-key.test.ts tests/updates.test.ts tests/diagnostics.test.ts tests/engine-pin.test.ts tests/product-version.test.ts tests/engine-root.test.ts tests/engine-launch.test.ts tests/git-refs.test.ts tests/github-engine.test.ts tests/client-scenarios.test.ts tests/status-tray.test.ts tests/quit-session.test.ts tests/window-chrome.test.ts tests/health-check.test.ts tests/engine-updater.test.ts"
+  },
+  "dependencies": {
+    "@dsh/client-runtime": "workspace:*",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6",
+    "electron": "^39.8.10",
+    "electron-builder": "^26.15.3"
+  }
+}

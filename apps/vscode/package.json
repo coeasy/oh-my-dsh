@@ -1,0 +1,65 @@
+{
+  "name": "my-dsh-vscode",
+  "displayName": "my-dsh",
+  "description": "my-dsh VS Code / Cursor client for DeepSeek Harness.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "dsh-client",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0a1f3d",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onCommand:dsh.open",
+    "onCommand:dsh.stop"
+  ],
+  "type": "module",
+  "main": "./out/extension.js",
+  "license": "MIT",
+  "scripts": {
+    "compile": "esbuild src/extension.ts --bundle --external:vscode --platform=node --format=esm --outfile=out/extension.js && node ../../scripts/copy-plugin.mjs out",
+    "pack": "npm run compile && vsce package --no-dependencies --allow-missing-repository",
+    "test": "node --experimental-strip-types --test tests/panel.test.ts tests/runtime-mode.test.ts"
+  },
+  "contributes": {
+    "commands": [
+            {
+              "command": "dsh.open",
+              "title": "DeepSeek Harness: Open",
+              "category": "DeepSeek Harness"
+            },
+            {
+              "command": "dsh.stop",
+              "title": "DeepSeek Harness: Stop",
+              "category": "DeepSeek Harness"
+            }
+    ],
+    "configuration": {
+      "title": "DeepSeek Harness",
+      "properties": {
+        "dsh.runtime": {
+          "type": "string",
+          "enum": ["local", "download"],
+          "default": "local",
+          "description": "local uses PATH dsh. download uses the cached runtime. Unset in development prefers the repo clone."
+        },
+        "dsh.downloadUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Runtime download URL for D3. Empty means use DSH_RUNTIME_URL; missing both fails loud."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@dsh/client-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.6.0"
+  }
+}

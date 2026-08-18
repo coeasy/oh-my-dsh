@@ -1,0 +1,22 @@
+{
+  "name": "@dsh/plugin-embedded-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cordis bundle: lock webserver to 127.0.0.1:0 and write a ready file for client shells.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "src/index.ts",
+    "cordis.patch.yml",
+    "README.md"
+  ]
+}

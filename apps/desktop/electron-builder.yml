@@ -1,0 +1,96 @@
+appId: com.mydsh.desktop
+productName: my-dsh
+copyright: my-dsh client pack
+asar: true
+extraMetadata:
+  name: my-dsh
+icon: build/icon.png
+directories:
+  output: dist
+files:
+  - out/main.js
+  - out/preload.cjs
+  - package.json
+extraResources:
+  - from: out/embedded-client.js
+    to: embedded-client.js
+  - from: runtime.json
+    to: runtime.json
+  - from: splash.html
+    to: splash.html
+  - from: setup.html
+    to: setup.html
+  - from: ../../runtime/payload/origin.json
+    to: runtime/origin.json
+  - from: env.example
+    to: env.example
+  - from: build/icon.png
+    to: icon.png
+extraFiles:
+  - from: ../../LICENSE
+    to: LICENSE
+  - from: ../../NOTICE
+    to: NOTICE
+afterPack: after-pack.cjs
+compression: normal
+publish:
+  provider: github
+  owner: ${env.GH_OWNER:-dsh-client}
+  repo: ${env.GH_REPO:-my-dsh}
+  releaseType: release
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+win:
+  icon: build/icon.png
+  artifactName: my-dsh-${version}-win.${ext}
+  extraResources:
+    - from: ../../runtime/payload/node.exe
+      to: runtime/node.exe
+    - from: ../../runtime/payload/dsh.cmd
+      to: runtime/dsh.cmd
+  target:
+    - nsis
+    - portable
+    - zip
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  differentialPackage: false
+  artifactName: my-dsh-Setup-${version}.${ext}
+  runAfterFinish: true
+portable:
+  artifactName: my-dsh-${version}-portable.exe
+  unpackDirName: my-dsh
+mac:
+  icon: build/icon.png
+  artifactName: my-dsh-${version}-mac.${ext}
+  category: public.app-category.developer-tools
+  identity: null
+  extraResources:
+    - from: ../../runtime/payload/node
+      to: runtime/node
+    - from: ../../runtime/payload/dsh
+      to: runtime/dsh
+  target:
+    - dmg
+    - zip
+linux:
+  icon: build/icon.png
+  artifactName: my-dsh-${version}-linux.${ext}
+  category: Development
+  extraResources:
+    - from: ../../runtime/payload/node
+      to: runtime/node
+    - from: ../../runtime/payload/dsh
+      to: runtime/dsh
+  target:
+    - AppImage
+    - zip

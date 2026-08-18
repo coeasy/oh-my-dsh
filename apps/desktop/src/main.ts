@@ -1,0 +1,929 @@
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  net,
+  shell,
+  type MessageBoxOptions,
+} from 'electron'
+import {
+  assertLoopbackUrl,
+  killProcessTree,
+  launchHost,
+  writeDevLauncher,
+  type RunningHost,
+} from '@dsh/client-runtime'
+import { hasDeepSeekApiKey, upsertEnvKey } from './api-key.ts'
+import { createStatusTray, type StatusTray } from './app-tray.ts'
+import type { RuntimeSnapshot } from './contracts.ts'
+import { buildDiagnosticsReport } from './diagnostics.ts'
+import { loadDesktopSettings, saveDesktopSettings } from './desktop-settings.ts'
+import {
+  buildHarnessSpawnOptions,
+  loadDotEnvFile,
+  resolveSidecarDotEnvPath,
+  sanitizeBundledSpawnEnv,
+} from './harness-env.ts'
+import { ensureLaunchRoot, harnessHomePath, desktopUserDataPath } from './launch-root.ts'
+import { LanMobileBridge } from './mobile/lan-mobile-bridge.ts'
+import {
+  parseRuntimeFile,
+  resolveDesktopDownloadUrl,
+  resolveEngineLaunch,
+  resolvePluginPath,
+} from './launch-config.ts'
+import {
+  QUIT_BUDGET_MS,
+  stoppingSnapshot,
+  clearEnginePid,
+  readEnginePid,
+  writeEnginePid,
+} from './quit-session.ts'
+import { secureWindow } from './security.ts'
+import { initObservability, logInfo } from './observability.ts'
+import { isNewerVersion, parseGithubRepo } from './updates.ts'
+import {
+  downloadEnginePayload,
+  engineVersionDir,
+  parseEngineUpdateManifest,
+  parseLatestRelease,
+} from './engine-updater.ts'
+import {
+  desktopChromeOptions,
+  FILL_VIEWPORT_CSS,
+  HARNESS_WINDOW_TITLE,
+  NO_DRAG_INTERACTIVES_CSS,
+} from './window-chrome.ts'
+import { isUsableWorkspace, resolveLaunchDirectory } from './workspace-choice.ts'
+import { isAbortedNavigationError, shouldLoadHarnessUrl } from './window-navigation.ts'
+
+let mainWindow: BrowserWindow | undefined
+let mobileWindow: BrowserWindow | undefined
+let host: RunningHost | undefined
+let mobileBridge: LanMobileBridge | undefined
+let statusTray: StatusTray | undefined
+let lastSnapshot: RuntimeSnapshot = { phase: 'idle', message: 'Harness is not running.', logs: [] }
+let lastEnginePid = 0
+let launchDirectory = ''
+let quitting = false
+let forceExiting = false
+let failureDialogVisible = false
+let setupWaiter: ((result: { workspace: string; apiKey: string }) => void) | undefined
+
+function moduleDir(): string {
+  return dirname(fileURLToPath(import.meta.url))
+}
+
+/**
+ * Resolve a path to its canonical long form. Portable builds run from
+ * %TEMP%, which on some systems is an 8.3 short-name path (e.g.
+ * C:\Users\ADMINI~1\...). Electron exposes that short name via
+ * process.resourcesPath, and paths handed to the engine sidecar then carry
+ * the short name. Node's ESM resolver can fail to load such paths, so we
+ * canonicalize every engine-facing path to its long-name form.
+ */
+function canonicalEnginePath(path: string): string {
+  try {
+    // realpathSync.native resolves 8.3 short names to their long form, which
+    // the engine's ESM loader needs to find files under a short-named %TEMP%.
+    return realpathSync.native(path)
+  } catch {
+    return path
+  }
+}
+
+function repoRoot(): string {
+  return join(moduleDir(), '..', '..', '..')
+}
+
+function configureAppIdentity(): void {
+  app.setName('my-dsh')
+  app.setAppUserModelId('com.mydsh.desktop')
+  app.setPath('userData', desktopUserDataPath())
+  migrateLegacyUserData()
+}
+
+/**
+ * One-time migration from the legacy user-data folder name
+ * (`dsh-client-desktop`) to the renamed `my-dsh` folder, so existing users
+ * keep their workspace, API key and engine settings after the rename. Only
+ * copies user-authored configuration, never the engine's runtime state
+ * (`profiles`, `node_modules`, `sessions`, `storages`) — those are managed by
+ * the engine at first launch and must not be copied, or the engine's symlink
+ * handling breaks. Only runs when the new folder is absent but the legacy one
+ * exists; the legacy folder is left untouched.
+ */
+function migrateLegacyUserData(): void {
+  const current = app.getPath('userData')
+  const legacy = join(app.getPath('appData'), 'dsh-client-desktop')
+  if (legacy === current || existsSync(current) || !existsSync(legacy)) return
+  const copyIfPresent = (relative: string): void => {
+    const src = join(legacy, relative)
+    if (!existsSync(src)) return
+    const dest = join(current, relative)
+    mkdirSync(dirname(dest), { recursive: true })
+    try {
+      cpSync(src, dest, { recursive: true, force: true })
+    } catch (error) {
+      console.error(`[my-dsh] migration skipped ${relative}`, error)
+    }
+  }
+  mkdirSync(current, { recursive: true })
+  copyIfPresent('desktop-settings.json')
+  copyIfPresent(join('harness', 'settings.yaml'))
+  copyIfPresent(join('harness', '.env'))
+  copyIfPresent(join('harness', '.env.example'))
+}
+
+function desktopResourcePath(name: string): string {
+  return app.isPackaged ? join(process.resourcesPath, name) : join(moduleDir(), '..', name)
+}
+
+function preloadPath(): string {
+  return join(moduleDir(), 'preload.cjs')
+}
+
+function loadBundledRuntime(): ReturnType<typeof parseRuntimeFile> {
+  const path = app.isPackaged
+    ? join(process.resourcesPath, 'runtime.json')
+    : join(moduleDir(), '..', 'runtime.json')
+  if (!existsSync(path)) return {}
+  return parseRuntimeFile(readFileSync(path, 'utf8'))
+}
+
+function harnessLogPath(): string {
+  return join(app.getPath('logs'), 'harness.log')
+}
+
+function harnessLocale(): 'en' | 'zh' {
+  return app.getLocale().toLowerCase().startsWith('zh') ? 'zh' : 'en'
+}
+
+function sidecarDotEnvPath(): string {
+  return resolveSidecarDotEnvPath(dirname(app.getPath('exe')), process.env.PORTABLE_EXECUTABLE_DIR)
+}
+
+function currentApiKeyPresent(): boolean {
+  const dshHome = harnessHomePath(app.getPath('userData'))
+  return (
+    hasDeepSeekApiKey(process.env) ||
+    hasDeepSeekApiKey(loadDotEnvFile(sidecarDotEnvPath())) ||
+    hasDeepSeekApiKey(loadDotEnvFile(join(dshHome, '.env')))
+  )
+}
+
+function persistApiKey(apiKey: string): void {
+  const trimmed = apiKey.trim()
+  if (!trimmed) return
+  const dshHome = harnessHomePath(app.getPath('userData'))
+  mkdirSync(dshHome, { recursive: true })
+  const dest = join(dshHome, '.env')
+  const previous = existsSync(dest) ? readFileSync(dest, 'utf8') : ''
+  writeFileSync(dest, upsertEnvKey(previous, 'DEEPSEEK_API_KEY', trimmed), 'utf8')
+}
+
+function publishSnapshot(next: RuntimeSnapshot): void {
+  lastSnapshot = next
+  statusTray?.update(next)
+}
+
+function rememberEngine(next: RunningHost | undefined): void {
+  host = next
+  lastEnginePid = next?.pid ?? 0
+  const userData = app.getPath('userData')
+  if (next?.pid) writeEnginePid(userData, next.pid)
+  else clearEnginePid(userData)
+}
+
+function trayIconPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(moduleDir(), '..', 'build', 'icon.png')
+}
+
+function showMainWindow(): void {
+  if (lastSnapshot.phase === 'ready' && lastSnapshot.url) {
+    void openHarness(lastSnapshot.url).catch(showUnexpectedError)
+    return
+  }
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow()
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+}
+
+function reapRecordedEngine(): void {
+  const pid = readEnginePid(app.getPath('userData'))
+  if (pid) killProcessTree(pid)
+  clearEnginePid(app.getPath('userData'))
+}
+
+function dismissUi(): void {
+  try {
+    statusTray?.destroy()
+  } catch {
+    // tray already gone
+  }
+  statusTray = undefined
+  if (mobileWindow && !mobileWindow.isDestroyed()) mobileWindow.destroy()
+  mobileWindow = undefined
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.removeAllListeners('close')
+    mainWindow.close()
+  }
+}
+
+function forceExit(): void {
+  if (forceExiting) return
+  forceExiting = true
+  quitting = true
+  if (lastEnginePid) killProcessTree(lastEnginePid)
+  clearEnginePid(app.getPath('userData'))
+  dismissUi()
+  host = undefined
+  mobileBridge = undefined
+  app.exit(0)
+}
+
+async function quitAll(): Promise<void> {
+  if (quitting) return
+  quitting = true
+  publishSnapshot(stoppingSnapshot(harnessLocale(), launchDirectory))
+  dismissUi()
+  const budget = setTimeout(() => forceExit(), QUIT_BUDGET_MS)
+  try {
+    await Promise.all([
+      host?.stop().catch(() => undefined),
+      mobileBridge?.stop().catch(() => undefined),
+    ])
+  } finally {
+    clearTimeout(budget)
+    forceExit()
+  }
+}
+
+function createWindow(): BrowserWindow {
+  const dark = nativeTheme.shouldUseDarkColors
+  const chrome = desktopChromeOptions(dark)
+  const webPreferences = {
+    contextIsolation: true,
+    nodeIntegration: false,
+    preload: preloadPath(),
+    sandbox: true,
+    webSecurity: true,
+  }
+  let window: BrowserWindow
+  try {
+    window = new BrowserWindow({
+      width: 1380,
+      height: 900,
+      minWidth: 900,
+      minHeight: 640,
+      show: false,
+      ...chrome,
+      webPreferences,
+    })
+  } catch {
+    window = new BrowserWindow({
+      width: 1380,
+      height: 900,
+      minWidth: 900,
+      minHeight: 640,
+      show: false,
+      title: HARNESS_WINDOW_TITLE,
+      autoHideMenuBar: true,
+      backgroundColor: chrome.backgroundColor,
+      webPreferences,
+    })
+  }
+  window.setMenuBarVisibility(false)
+  window.on('page-title-updated', (event) => {
+    event.preventDefault()
+    window.setTitle(HARNESS_WINDOW_TITLE)
+  })
+  window.webContents.on('did-finish-load', () => {
+    void window.webContents.insertCSS(FILL_VIEWPORT_CSS)
+    void window.webContents.insertCSS(NO_DRAG_INTERACTIVES_CSS)
+  })
+  secureWindow(window)
+  window.on('closed', () => {
+    if (mainWindow === window) mainWindow = undefined
+  })
+  window.on('close', (event) => {
+    if (quitting || forceExiting) return
+    if (process.platform === 'darwin') {
+      event.preventDefault()
+      window.hide()
+      return
+    }
+    void quitAll()
+  })
+  mainWindow = window
+  return window
+}
+
+async function openHarness(url: string): Promise<void> {
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow()
+  if (shouldLoadHarnessUrl(window.webContents.getURL(), url)) {
+    try {
+      await window.loadURL(url)
+    } catch (error) {
+      if (isAbortedNavigationError(error)) return
+      throw error
+    }
+  }
+  if (lastSnapshot.url !== url || window.isDestroyed()) return
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+}
+
+async function showSplash(): Promise<void> {
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow()
+  await window.loadFile(desktopResourcePath('splash.html'))
+  if (window.isDestroyed()) return
+  window.show()
+  window.focus()
+}
+
+function showUnexpectedError(error: unknown): void {
+  const message = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  dialog.showErrorBox('my-dsh encountered an error', message)
+}
+
+async function launchHarness(): Promise<void> {
+  if (quitting) return
+  publishSnapshot({ phase: 'starting', message: 'Starting my-dsh…', logs: [], launchDirectory })
+  await showSplash()
+  if (quitting) return
+  if (host) {
+    await host.stop()
+    rememberEngine(undefined)
+  }
+  const bundled = loadBundledRuntime()
+  const engine = resolveEngineLaunch({
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    moduleDir: moduleDir(),
+    repoRoot: repoRoot(),
+    env: process.env,
+  })
+  if (engine.cloneBin && engine.dshCommand) {
+    writeDevLauncher({ command: engine.dshCommand, cloneBin: engine.cloneBin })
+  }
+  const canonicalDshCommand = engine.dshCommand ? canonicalEnginePath(engine.dshCommand) : undefined
+  const pluginPath = canonicalEnginePath(
+    resolvePluginPath({
+      packaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      moduleDir: moduleDir(),
+    }),
+  )
+  const dshHome = harnessHomePath(app.getPath('userData'))
+  const sidecarEnv = loadDotEnvFile(sidecarDotEnvPath())
+  const spawn = buildHarnessSpawnOptions(
+    launchDirectory,
+    dshHome,
+    process.platform,
+    process.env,
+    sidecarEnv,
+  )
+  if (engine.mode === 'bundled' && spawn.env) {
+    spawn.env = sanitizeBundledSpawnEnv(spawn.env)
+  }
+  try {
+    rememberEngine(
+      await launchHost({
+        workspaceCwd: launchDirectory,
+        mode: engine.mode,
+        dshCommand: canonicalDshCommand ?? engine.dshCommand,
+        downloadUrl: resolveDesktopDownloadUrl({ env: process.env, bundled }),
+        pluginPath,
+        readyTimeoutMs: 180_000,
+        logPath: harnessLogPath(),
+        env: spawn.env,
+      }),
+    )
+    if (!host || quitting) return
+    assertLoopbackUrl(host.url)
+    publishSnapshot({
+      phase: 'ready',
+      message: 'Harness is ready.',
+      logs: [],
+      launchDirectory,
+      url: host.url,
+    })
+    await openHarness(host.url)
+  } catch (error) {
+    rememberEngine(undefined)
+    publishSnapshot({
+      phase: 'failed',
+      message: error instanceof Error ? error.message : String(error),
+      logs: [],
+      launchDirectory,
+    })
+    await showRuntimeFailure(lastSnapshot)
+  }
+}
+
+async function showRuntimeFailure(snapshot: RuntimeSnapshot): Promise<void> {
+  if (failureDialogVisible || quitting) return
+  failureDialogVisible = true
+  try {
+    while (!quitting && lastSnapshot.phase === 'failed') {
+      const options: MessageBoxOptions = {
+        type: 'error',
+        title: 'Harness could not start',
+        message: snapshot.message,
+        detail: snapshot.launchDirectory
+          ? `Launch directory: ${snapshot.launchDirectory}\n\nYou can retry or inspect the Harness log.`
+          : 'You can retry or inspect the Harness log.',
+        buttons: ['Retry', 'Show Log', 'Quit'],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      }
+      const result = mainWindow
+        ? await dialog.showMessageBox(mainWindow, options)
+        : await dialog.showMessageBox(options)
+      if (result.response === 0) {
+        await launchHarness()
+      } else if (result.response === 1) {
+        shell.showItemInFolder(harnessLogPath())
+        continue
+      } else {
+        void quitAll()
+      }
+      if (lastSnapshot.phase !== 'failed') return
+      snapshot = lastSnapshot
+    }
+  } catch (error) {
+    showUnexpectedError(error)
+  } finally {
+    failureDialogVisible = false
+  }
+}
+
+async function confirmLanBridge(): Promise<boolean> {
+  const isChinese = harnessLocale() === 'zh'
+  const options: MessageBoxOptions = {
+    type: 'warning',
+    title: isChinese ? '连接手机' : 'Connect Phone',
+    message: isChinese ? '手机桥会在局域网监听。' : 'The phone bridge listens on your private LAN.',
+    detail: isChinese
+      ? '只接受同一 RFC1918 网段，并需要扫码配对。不要在不可信的 Wi-Fi 上开启。'
+      : 'It accepts RFC1918/loopback clients after QR pairing. Do not enable it on untrusted Wi-Fi.',
+    buttons: isChinese ? ['继续', '取消'] : ['Continue', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  }
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options)
+  return result.response === 0
+}
+
+async function showMobilePairing(): Promise<void> {
+  if (!mobileBridge) return
+  if (lastSnapshot.phase !== 'ready' || !lastSnapshot.url) {
+    const options: MessageBoxOptions = {
+      type: 'info',
+      message: harnessLocale() === 'zh' ? 'Harness 仍在启动。' : 'Harness is still starting.',
+      detail:
+        harnessLocale() === 'zh'
+          ? '请等桌面客户端就绪后再连接手机。'
+          : 'Wait until the desktop client is ready, then connect your phone again.',
+      buttons: ['OK'],
+    }
+    await (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options))
+    return
+  }
+  if (!mobileBridge.snapshot().running && !(await confirmLanBridge())) return
+
+  const snapshot = await mobileBridge.start()
+  if (!snapshot.desktopUrl || !snapshot.pairingUrl) {
+    await mobileBridge.stop()
+    const options: MessageBoxOptions = {
+      type: 'warning',
+      message:
+        harnessLocale() === 'zh' ? '没有找到可用的局域网。' : 'No private Wi-Fi network was found.',
+      detail:
+        harnessLocale() === 'zh'
+          ? '请把这台电脑连到和手机同一局域网后再试。'
+          : 'Connect this computer to the same private Wi-Fi as your phone and try again.',
+      buttons: ['OK'],
+    }
+    await (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options))
+    return
+  }
+
+  if (mobileWindow && !mobileWindow.isDestroyed()) mobileWindow.destroy()
+  mobileWindow = new BrowserWindow({
+    width: 560,
+    height: 700,
+    minWidth: 420,
+    minHeight: 560,
+    title: harnessLocale() === 'zh' ? '连接手机' : 'Connect Phone',
+    parent: mainWindow,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+    },
+  })
+  secureWindow(mobileWindow)
+  mobileWindow.on('closed', () => {
+    mobileWindow = undefined
+  })
+  await mobileWindow.loadURL(snapshot.desktopUrl)
+  mobileWindow.show()
+  mobileWindow.focus()
+}
+
+async function stopMobileBridge(): Promise<void> {
+  if (mobileWindow && !mobileWindow.isDestroyed()) mobileWindow.destroy()
+  await mobileBridge?.stop()
+}
+
+async function chooseFolder(): Promise<string | undefined> {
+  const result = await dialog.showOpenDialog(mainWindow ?? createWindow(), {
+    title: harnessLocale() === 'zh' ? '选择工作区' : 'Choose workspace',
+    properties: ['openDirectory'],
+  })
+  if (result.canceled || !result.filePaths[0]) return undefined
+  return result.filePaths[0]
+}
+
+async function applyWorkspace(folder: string, restart: boolean): Promise<void> {
+  if (!isUsableWorkspace(folder)) return
+  const userData = app.getPath('userData')
+  const settings = loadDesktopSettings(userData)
+  saveDesktopSettings(userData, { ...settings, workspace: folder })
+  launchDirectory = folder
+  if (restart) await launchHarness()
+}
+
+async function exportDiagnostics(): Promise<void> {
+  const originPath = app.isPackaged
+    ? join(process.resourcesPath, 'runtime', 'origin.json')
+    : join(moduleDir(), '..', '..', '..', 'runtime', 'payload', 'origin.json')
+  let engineRef = ''
+  if (existsSync(originPath)) {
+    try {
+      const origin = JSON.parse(readFileSync(originPath, 'utf8')) as { ref?: unknown }
+      if (typeof origin.ref === 'string') engineRef = origin.ref
+    } catch {
+      engineRef = ''
+    }
+  }
+  const logTail = existsSync(harnessLogPath())
+    ? readFileSync(harnessLogPath(), 'utf8').slice(-80_000)
+    : ''
+  const report = buildDiagnosticsReport({
+    appVersion: app.getVersion(),
+    engineRef,
+    workspace: launchDirectory,
+    packaged: app.isPackaged,
+    logTail,
+  })
+  const dest = join(app.getPath('documents'), `dsh-client-diagnostics-${Date.now()}.txt`)
+  writeFileSync(dest, report, 'utf8')
+  shell.showItemInFolder(dest)
+}
+
+async function checkForEngineUpdate(interactive: boolean): Promise<string> {
+  const repo = parseGithubRepo(process.env.DSH_GITHUB_REPO)
+  const isChinese = harnessLocale() === 'zh'
+  if (!repo) {
+    const msg = isChinese
+      ? '未配置更新源（DSH_GITHUB_REPO）。'
+      : 'No engine update source (DSH_GITHUB_REPO).'
+    if (interactive) await dialog.showMessageBox({ type: 'info', message: msg, buttons: ['OK'] })
+    return msg
+  }
+  const res = await net.fetch(
+    `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest`,
+    { headers: { 'User-Agent': 'my-dsh' } },
+  )
+  if (!res.ok) throw new Error(`engine update: GitHub HTTP ${res.status}`)
+  const latest = parseLatestRelease(await res.text())
+  if (!latest) {
+    const msg = isChinese ? '未能解析最新引擎版本。' : 'Could not parse the latest engine release.'
+    if (interactive) await dialog.showMessageBox({ type: 'info', message: msg, buttons: ['OK'] })
+    return msg
+  }
+  const cacheRoot = join(app.getPath('userData'), 'engine-cache')
+  const bundledRef = '0.1.0'
+  if (!isNewerVersion(latest.ref, bundledRef)) {
+    const msg = isChinese ? `引擎已是 ${bundledRef}。` : `Engine is up to date (${bundledRef}).`
+    if (interactive) await dialog.showMessageBox({ type: 'info', message: msg, buttons: ['OK'] })
+    return msg
+  }
+  const manifestUrl = process.env.DSH_ENGINE_UPDATE_URL
+  const manifestRaw = manifestUrl ? await (await net.fetch(manifestUrl)).text() : ''
+  const manifest = parseEngineUpdateManifest(manifestRaw)
+  if (!manifest) {
+    const msg = isChinese
+      ? `发现新引擎 ${latest.ref}，但未配置可下载清单（DSH_ENGINE_UPDATE_URL）。`
+      : `Engine ${latest.ref} available, but no manifest (DSH_ENGINE_UPDATE_URL).`
+    if (interactive) await dialog.showMessageBox({ type: 'info', message: msg, buttons: ['OK'] })
+    return msg
+  }
+  await downloadEnginePayload({
+    cacheRoot,
+    version: manifest.version,
+    url: manifest.url,
+    checksum: manifest.checksum,
+    fetchImpl: (u, init) => net.fetch(u instanceof URL ? u.href : u, init),
+  })
+  const dir = engineVersionDir(cacheRoot, manifest.version)
+  const msg = isChinese
+    ? `引擎 ${manifest.version} 已下载并校验，将在下次启动使用：${dir}`
+    : `Engine ${manifest.version} downloaded and verified; will be used on next launch: ${dir}`
+  if (interactive) await dialog.showMessageBox({ type: 'info', message: msg, buttons: ['OK'] })
+  return msg
+}
+
+async function checkForUpdates(interactive: boolean): Promise<void> {
+  const repo = parseGithubRepo(process.env.DSH_GITHUB_REPO)
+  const isChinese = harnessLocale() === 'zh'
+  if (!repo) {
+    if (interactive) {
+      await dialog.showMessageBox({
+        type: 'info',
+        message: isChinese ? '未配置更新源。' : 'Update source is not configured.',
+        detail: isChinese
+          ? '设置环境变量 DSH_GITHUB_REPO=owner/repo 后即可检查 GitHub Releases。'
+          : 'Set DSH_GITHUB_REPO=owner/repo to check GitHub Releases.',
+        buttons: ['OK'],
+      })
+    }
+    return
+  }
+  const response = await net.fetch(
+    `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest`,
+    {
+      headers: { 'User-Agent': 'my-dsh' },
+    },
+  )
+  if (!response.ok) throw new Error(`GitHub releases HTTP ${response.status}`)
+  const body = (await response.json()) as { tag_name?: unknown; html_url?: unknown }
+  const latest = typeof body.tag_name === 'string' ? body.tag_name : ''
+  const url = typeof body.html_url === 'string' ? body.html_url : ''
+  if (!latest || !isNewerVersion(latest, app.getVersion())) {
+    if (interactive) {
+      await dialog.showMessageBox({
+        type: 'info',
+        message: isChinese ? '已是最新版本。' : 'You are on the latest version.',
+        buttons: ['OK'],
+      })
+    }
+    return
+  }
+  const result = await dialog.showMessageBox({
+    type: 'info',
+    message: isChinese ? `发现 ${latest}` : `Update ${latest} is available`,
+    detail: isChinese
+      ? '打开 GitHub Release 下载，并核对 SHA256SUMS.txt。'
+      : 'Open the GitHub Release and verify SHA256SUMS.txt.',
+    buttons: isChinese ? ['打开', '稍后'] : ['Open', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+  })
+  if (result.response === 0 && url) await shell.openExternal(url)
+}
+
+async function showSetupIfNeeded(fallback: string): Promise<void> {
+  const settings = loadDesktopSettings(app.getPath('userData'))
+  launchDirectory = resolveLaunchDirectory(settings.workspace, fallback)
+  if (
+    isUsableWorkspace(settings.workspace ?? '') &&
+    (currentApiKeyPresent() || settings.apiKeyPrompted)
+  ) {
+    return
+  }
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow()
+  const finished = new Promise<{ workspace: string; apiKey: string }>((resolve) => {
+    setupWaiter = resolve
+  })
+  await window.loadFile(desktopResourcePath('setup.html'))
+  window.show()
+  window.focus()
+  const result = await finished
+  setupWaiter = undefined
+  if (result.workspace) await applyWorkspace(result.workspace, false)
+  persistApiKey(result.apiKey)
+  const userData = app.getPath('userData')
+  saveDesktopSettings(userData, { ...loadDesktopSettings(userData), apiKeyPrompted: true })
+}
+
+function installIpc(): void {
+  ipcMain.handle('engine:check-update', () =>
+    checkForEngineUpdate(true).catch((e) => (e instanceof Error ? e.message : String(e))),
+  )
+  ipcMain.handle('mobile:open-pairing', () => showMobilePairing())
+  ipcMain.handle('mobile:status', () => ({
+    connected: mobileBridge?.snapshot().connected === true,
+    running: mobileBridge?.snapshot().running === true,
+  }))
+  ipcMain.handle('desktop:pick-folder', () => chooseFolder())
+  ipcMain.handle('desktop:setup-defaults', () => ({
+    workspace: launchDirectory,
+    hasKey: currentApiKeyPresent(),
+  }))
+  ipcMain.handle(
+    'desktop:complete-setup',
+    (_event, payload: { workspace?: unknown; apiKey?: unknown }) => {
+      setupWaiter?.({
+        workspace: typeof payload?.workspace === 'string' ? payload.workspace : '',
+        apiKey: typeof payload?.apiKey === 'string' ? payload.apiKey : '',
+      })
+      return true
+    },
+  )
+  // When the user has already been prompted for an API key but never
+  // configured one, skip the engine's full-screen onboarding takeover so the
+  // client opens straight to a usable UI instead of a blocking modal.
+  ipcMain.handle('desktop:should-skip-onboarding', () => {
+    const settings = loadDesktopSettings(app.getPath('userData'))
+    return settings.apiKeyPrompted === true && !currentApiKeyPresent()
+  })
+}
+
+function installMenu(): void {
+  const isChinese = harnessLocale() === 'zh'
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin'
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' as const },
+              { type: 'separator' as const },
+              { role: 'hide' as const },
+              { role: 'hideOthers' as const },
+              { role: 'unhide' as const },
+              { type: 'separator' as const },
+              { role: 'quit' as const },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: isChinese ? '文件' : 'File',
+      submenu: [
+        {
+          label: isChinese ? '打开工作区…' : 'Open Workspace…',
+          accelerator: 'CmdOrCtrl+O',
+          click: () =>
+            void chooseFolder()
+              .then((folder) => (folder ? applyWorkspace(folder, true) : undefined))
+              .catch(showUnexpectedError),
+        },
+        {
+          label: isChinese ? '导出诊断…' : 'Export Diagnostics…',
+          click: () => void exportDiagnostics().catch(showUnexpectedError),
+        },
+        { type: 'separator' },
+        {
+          label: isChinese ? '检查更新…' : 'Check for Updates…',
+          click: () => void checkForUpdates(true).catch(showUnexpectedError),
+        },
+        ...(process.platform === 'darwin'
+          ? []
+          : [{ type: 'separator' as const }, { role: 'quit' as const }]),
+      ],
+    },
+    {
+      label: 'Harness',
+      submenu: [
+        {
+          label: isChinese ? '连接手机…' : 'Connect Phone…',
+          accelerator: 'CmdOrCtrl+Shift+M',
+          click: () => void showMobilePairing().catch(showUnexpectedError),
+        },
+        {
+          label: isChinese ? '停止手机桥' : 'Stop Phone Bridge',
+          click: () => void stopMobileBridge().catch(showUnexpectedError),
+        },
+        { type: 'separator' },
+        {
+          label: isChinese ? '重启 Harness' : 'Restart Harness',
+          accelerator: 'CmdOrCtrl+Shift+R',
+          click: () => void launchHarness().catch(showUnexpectedError),
+        },
+        {
+          label: isChinese ? '打开 Harness 日志' : 'Show Harness Log',
+          click: () => shell.showItemInFolder(harnessLogPath()),
+        },
+      ],
+    },
+    {
+      label: isChinese ? '编辑' : 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: isChinese ? '查看' : 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: isChinese ? '窗口' : 'Window',
+      submenu: [{ role: 'minimize' }, { role: 'close' }],
+    },
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+async function bootstrap(): Promise<void> {
+  // Register IPC handlers before any window/page loads: the preload calls
+  // mobile:status on every page (including splash), which would otherwise
+  // race ahead of installIpc() and log "No handler registered".
+  installIpc()
+  createWindow()
+  await showSplash()
+  reapRecordedEngine()
+  const fallback = await ensureLaunchRoot(app.getPath('userData'))
+  statusTray = createStatusTray({
+    iconPath: trayIconPath(),
+    locale: harnessLocale(),
+    snapshot: lastSnapshot,
+    onShow: showMainWindow,
+    onRestart: () => {
+      if (!quitting) void launchHarness().catch(showUnexpectedError)
+    },
+    onQuit: () => {
+      void quitAll()
+    },
+  })
+  mobileBridge = new LanMobileBridge({
+    harnessUrl: () => lastSnapshot.url,
+    locale: harnessLocale,
+    port: app.isPackaged ? 43127 : 43128,
+  })
+  installMenu()
+  await showSetupIfNeeded(fallback)
+  const settings = loadDesktopSettings(app.getPath('userData'))
+  if (settings.autoUpdate !== false && app.isPackaged) {
+    void checkForUpdates(false).catch(() => undefined)
+  }
+  await launchHarness()
+}
+
+configureAppIdentity()
+initObservability()
+logInfo('app starting')
+const singleInstance = app.requestSingleInstanceLock()
+if (!singleInstance) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    showMainWindow()
+  })
+  app
+    .whenReady()
+    .then(bootstrap)
+    .catch((error: unknown) => {
+      showUnexpectedError(error)
+      void quitAll()
+    })
+  app.on('activate', () => {
+    if (quitting) return
+    showMainWindow()
+    if (lastSnapshot.phase === 'idle') {
+      void launchHarness().catch(showUnexpectedError)
+    }
+  })
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin' && !quitting) void quitAll()
+  })
+  app.on('before-quit', (event) => {
+    if (forceExiting) return
+    event.preventDefault()
+    if (!quitting) void quitAll()
+  })
+}

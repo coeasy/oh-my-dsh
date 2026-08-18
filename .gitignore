@@ -1,0 +1,58 @@
+.ref/
+node_modules/
+dist/
+lib/
+out/
+*.vsix
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+coverage/
+runtime/stage/
+runtime/stage.broken/
+runtime/dev/
+runtime/payload/
+runtime/payload.stale-*/
+runtime/engine-resolved.json
+apps/desktop/dist/
+apps/desktop/dist-release/
+apps/desktop/release/
+apps/desktop/win-unpacked.stale-*/
+
+# Upstream DeepSeek Harness clone. Fetch on demand; never commit sources.
+/deepseek-harness/
+
+# Legacy clone location from earlier layouts.
+/docs/competitive-analysis/deepseek-harness/
+
+# Internal research and agent session dumps — not part of the published tree.
+/docs/competitive-analysis/
+/docs/全面升级改造多场景客户端。编写一键构建：从-GitHub-获取最新-deepseek-ai-deep.md
+/docs/继续落地-DeepSeek-Harness-客户端（方案2+U3，插件方式）。已有-plugins-.md
+
+# aza / delivery residue (keep prd/PRD.md)
+/prd/resume-hint.json
+/prd/final-report.md
+/prd/DELIVERY.md
+/tests/generated/
+
+# Agent / IDE session residue — never publish
+.agent/
+.aza/
+.spec/
+.reasonix/
+.wpscomate/
+.cursor/
+src/generated/
+*.tsbuildinfo
+.turbo/
+.cache/
+
+# Local developer cleanup scripts / runtime dirs — never publish
+scripts/_cleanup_stage.py
+scripts/_del_pnpm.sh
+.rundata/
+output/

@@ -1,0 +1,11 @@
+{
+  "name": "@dsh/client-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Resolve, spawn, health-check, and stop a dsh web host for client shells.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
