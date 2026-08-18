@@ -55,7 +55,7 @@
     "install:clients": "node scripts/install-clients.mjs"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.27.0",
+    "@changesets/cli": "^3.0.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.2.0",
     "@types/vscode": "^1.90.0",
