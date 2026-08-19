@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { cachedBinaryPath, resolveRuntime, resolveRuntimeMode } from '../src/resolve-runtime.ts'
 
+// resolveRuntime uses the host platform's path semantics; use a path that is
+// absolute on the running platform so the suite is portable across CI OSes.
+const appLauncher =
+  process.platform === 'win32'
+    ? 'C:\\app\\resources\\runtime\\dsh.cmd'
+    : '/app/resources/runtime/dsh'
+
 describe('resolveRuntime', () => {
   it('defaults to local and honors DSH_BIN', () => {
     assert.equal(resolveRuntimeMode(undefined, {}), 'local')
@@ -53,7 +60,7 @@ describe('resolveRuntime', () => {
       () =>
         resolveRuntime({
           mode: 'bundled',
-          dshCommand: 'C:\\app\\resources\\runtime\\dsh.cmd',
+          dshCommand: appLauncher,
           exists: () => false,
           env: {},
         }),
@@ -61,11 +68,11 @@ describe('resolveRuntime', () => {
     )
     const resolved = resolveRuntime({
       mode: 'bundled',
-      dshCommand: 'C:\\app\\resources\\runtime\\dsh.cmd',
+      dshCommand: appLauncher,
       exists: () => true,
       env: {},
     })
     assert.equal(resolved.mode, 'bundled')
-    assert.equal(resolved.command, 'C:\\app\\resources\\runtime\\dsh.cmd')
+    assert.equal(resolved.command, appLauncher)
   })
 })

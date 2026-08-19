@@ -12,7 +12,6 @@ import {
   mkdirSync,
   readdirSync,
   realpathSync,
-  rmdirSync,
   statSync,
   unlinkSync,
 } from 'node:fs'
@@ -86,8 +85,9 @@ export function materializeLinks(root, opts = {}) {
       return
     }
 
-    if (isDir) rmdirSync(p)
-    else unlinkSync(p)
+    // p is always a symlink (walk only calls materialize on lstat.isSymbolicLink).
+    // Remove the link itself with unlink; rmdir on a dir symlink fails on POSIX.
+    unlinkSync(p)
 
     if (seen.has(real)) {
       const existing = seen.get(real)

@@ -52,7 +52,9 @@ export function writeDevLauncher(input: {
 export function assertLauncherUsable(command: string, io: LauncherIo): string {
   const raw = String(command || '').trim()
   if (!raw) throw new Error('engine launcher path is empty')
-  if (!isAbsolute(raw)) return raw
+  // `.cmd` wrappers are Windows-only; judge them with Windows path semantics so
+  // the check also holds when running the suite on POSIX hosts.
+  if (!win32.isAbsolute(raw)) return raw
   if (!io.exists(raw)) {
     throw new Error(`engine launcher missing at ${raw}`)
   }
@@ -83,8 +85,9 @@ export function resolveDirectSpawn(
   platform: NodeJS.Platform = process.platform,
 ): DirectSpawn | undefined {
   const raw = String(command || '').trim()
-  if (!raw || !isAbsolute(raw) || !io.exists(raw)) return undefined
+  if (!raw) return undefined
   const path = platform === 'win32' ? win32 : posix
+  if (!path.isAbsolute(raw) || !io.exists(raw)) return undefined
   const dir = path.dirname(raw)
   const siblingNode = path.join(dir, platform === 'win32' ? 'node.exe' : 'node')
   const siblingBin = path.join(dir, 'harness', 'apps', 'cli', 'lib', 'bin.js')

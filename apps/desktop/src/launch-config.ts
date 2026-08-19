@@ -1,5 +1,8 @@
-import { join } from 'node:path'
+import { join as joinDefault, posix, win32 } from 'node:path'
 import { existsSync } from 'node:fs'
+
+const pathFor = (platform: NodeJS.Platform | undefined) =>
+  (platform ?? process.platform) === 'win32' ? win32 : posix
 
 export type RuntimeMode = 'local' | 'download' | 'bundled'
 
@@ -58,7 +61,7 @@ export function resolveEngineLaunch(input: {
     if (explicit === 'download') return { mode: 'download' }
     return {
       mode: 'bundled',
-      dshCommand: join(input.resourcesPath, 'runtime', name),
+      dshCommand: joinDefault(input.resourcesPath, 'runtime', name),
     }
   }
   if (explicit === 'download') return { mode: 'download' }
@@ -66,17 +69,17 @@ export function resolveEngineLaunch(input: {
     return { mode: 'local', dshCommand: env.DSH_BIN }
   }
 
-  const staged = join(input.repoRoot, 'runtime', 'stage', name)
+  const staged = joinDefault(input.repoRoot, 'runtime', 'stage', name)
   if (explicit === 'bundled') {
     return { mode: 'bundled', dshCommand: staged }
   }
   if (exists(staged)) return { mode: 'bundled', dshCommand: staged }
 
-  const cloneBin = join(input.repoRoot, 'deepseek-harness', 'apps', 'cli', 'lib', 'bin.js')
+  const cloneBin = joinDefault(input.repoRoot, 'deepseek-harness', 'apps', 'cli', 'lib', 'bin.js')
   if (exists(cloneBin)) {
     return {
       mode: 'bundled',
-      dshCommand: join(input.repoRoot, 'runtime', 'dev', name),
+      dshCommand: joinDefault(input.repoRoot, 'runtime', 'dev', name),
       cloneBin,
     }
   }
@@ -115,8 +118,8 @@ export function resolvePluginPath(input: {
   resourcesPath: string
   moduleDir: string
 }): string {
-  if (input.packaged) return join(input.resourcesPath, 'embedded-client.js')
-  return join(input.moduleDir, 'embedded-client.js')
+  if (input.packaged) return joinDefault(input.resourcesPath, 'embedded-client.js')
+  return joinDefault(input.moduleDir, 'embedded-client.js')
 }
 
 /**
@@ -129,7 +132,8 @@ export function resolveBundledDshCommand(input: {
   moduleDir: string
   platform?: NodeJS.Platform
 }): string {
+  const join = pathFor(input.platform)
   const name = bundledLauncherName(input.platform)
-  if (input.packaged) return join(input.resourcesPath, 'runtime', name)
-  return join(input.moduleDir, '..', '..', '..', 'runtime', 'stage', name)
+  if (input.packaged) return join.join(input.resourcesPath, 'runtime', name)
+  return join.join(input.moduleDir, '..', '..', '..', 'runtime', 'stage', name)
 }
