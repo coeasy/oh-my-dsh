@@ -1,4 +1,4 @@
-import { isAbsolute, normalize, resolve, sep } from 'node:path'
+import { isAbsolute, normalize, resolve, sep, win32 } from 'node:path'
 import { tmpdir } from 'node:os'
 
 /** True if `child` is `parent` or a file/dir under it after normalize. */
@@ -18,7 +18,9 @@ export function assertAbsolutePluginPath(pluginAbsPath: string): string {
   if (raw.startsWith('@') || /^(?:[a-z0-9][a-z0-9._-]*)\/[a-z0-9._-]+$/i.test(raw)) {
     throw new Error(`embedded-client patch: refusing npm package name ${raw}`)
   }
-  if (!isAbsolute(raw)) {
+  // Plugin paths are Windows-oriented (the Cordis engine runs on the Windows
+  // host), so accept win32 absolute paths even when the suite runs on POSIX.
+  if (!win32.isAbsolute(raw) && !isAbsolute(raw)) {
     throw new Error(`embedded-client patch: plugin path must be absolute, got ${raw}`)
   }
   return raw

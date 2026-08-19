@@ -1,4 +1,4 @@
-# my-dsh 客户端（DeepSeek Harness 非官方封装）
+# my-dsh — unofficial DeepSeek Harness client pack
 
 Unofficial VS Code / Cursor extension and Electron desktop client for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). **Not published by, affiliated with, or endorsed by DeepSeek.**
 
@@ -33,20 +33,20 @@ See [docs/improvement/README.md](docs/improvement/README.md) for the phased impr
 
 Each OS packs its own native desktop artifacts (Windows exe, macOS dmg, Linux AppImage). Do not cross-compile; the bundled Node binary is the host's.
 
-| 操作 | Windows | macOS / Linux |
+| Action | Windows | macOS / Linux |
 |---|---|---|
-| **本地一键构建（推荐）** | `build-local.cmd` | `./build-local.sh` |
-| 构建（stable） | `build-clients.cmd` | `./build-clients.sh` |
-| 构建（latest release，含 rc） | `build-clients.cmd latest` | `./build-clients.sh latest` |
-| 构建（lock 钉死） | `build-clients.cmd lock` | `./build-clients.sh lock` |
-| 构建（钉死分支/tag） | `build-clients.cmd master` | `./build-clients.sh master` |
-| 安装 VSIX 到 Cursor / VS Code | `install-clients.cmd` | `./install-clients.sh` |
+| **Local one-click build (recommended)** | `build-local.cmd` | `./build-local.sh` |
+| Build (stable) | `build-clients.cmd` | `./build-clients.sh` |
+| Build (latest release, incl. rc) | `build-clients.cmd latest` | `./build-clients.sh latest` |
+| Build (pinned lock) | `build-clients.cmd lock` | `./build-clients.sh lock` |
+| Build (pinned branch / tag) | `build-clients.cmd master` | `./build-clients.sh master` |
+| Install VSIX into Cursor / VS Code | `install-clients.cmd` | `./install-clients.sh` |
 
-`$env:DSH_INSTALL = '1'` 可在打包结束后直接安装 VSIX。`$env:DSH_INSTALL_DESKTOP = '1'` 会再启动 NSIS。
+`$env:DSH_INSTALL = '1'` installs the packed VSIX right after packing; `$env:DSH_INSTALL_DESKTOP = '1'` also launches the NSIS installer.
 
 `build-local.*` is the recommended shortcut on slow networks: it pre-configures the GitHub clone proxy (`ghfast.top`), the npm registry (`npmmirror`) and the Electron mirror, then builds the pinned `lock` channel by default. Disable/override with `DSH_GH_PROXY=0`, `DSH_REGISTRY`, `DSH_ELECTRON_MIRROR`.
 
-等价 pnpm（详见 [docs/one-click-clients.md](docs/one-click-clients.md)）：
+Equivalent pnpm commands (see [docs/one-click-clients.md](docs/one-click-clients.md)):
 
 ```powershell
 pnpm install
@@ -59,14 +59,14 @@ pnpm install:clients
 Optional:
 
 ```powershell
-$env:DSH_CLIENTS = "vscode,zip"          # 只打部分场景
-$env:GITHUB_TOKEN = "..."                # 提高 GitHub API 额度
-$env:DSH_SKIP_ENGINE_BUILD = "1"         # 克隆已构建时跳过 pnpm build
-$env:DSH_ENGINE_REF = "master"           # 钉死某个分支或 tag
-pnpm engine:resolve stable               # 只打印将使用的 ref
+$env:DSH_CLIENTS = "vscode,zip"          # pack only some scenarios
+$env:GITHUB_TOKEN = "..."                # raise GitHub API rate limits
+$env:DSH_SKIP_ENGINE_BUILD = "1"         # skip pnpm build when the clone is already built
+$env:DSH_ENGINE_REF = "master"           # pin a branch or tag
+pnpm engine:resolve stable               # only print the ref that would be used
 ```
 
-场景：`vscode`（Cursor/VS Code VSIX）；Windows `nsis` / `portable` / `zip`；macOS `dmg` / `zip`；Linux `appimage` / `zip`。产物在 `apps/vscode/*.vsix` 与 `apps/desktop/dist-release/`。双击 `my-dsh-*-portable.exe`（或安装 NSIS 后的桌面快捷方式）即可启动，不依赖 PATH 上的 `dsh`。
+Scenarios: `vscode` (Cursor/VS Code VSIX); Windows `nsis` / `portable` / `zip`; macOS `dmg` / `zip`; Linux `appimage` / `zip`. Artifacts land in `apps/vscode/*.vsix` and `apps/desktop/dist-release/`. Double-click `my-dsh-*-portable.exe` (or the desktop shortcut from the NSIS install) to launch — no `dsh` on PATH is needed.
 
 The clone is gitignored and **read-only**. The scripts never patch Harness sources.
 
@@ -110,7 +110,7 @@ LAN phone bridge is off until **Connect Phone**. Same private Wi-Fi, QR pair, al
 
 ## Internationalization (i18n)
 
-The client shell (tray, setup, splash, phone bridge) and docs are bilingual (English / 简体中文) and follow the host OS language automatically. See [docs/i18n.md](docs/i18n.md). 中文版见 [README.zh-CN.md](README.zh-CN.md)。
+The client shell (tray, setup, splash, phone bridge) and docs are bilingual (English / 简体中文) and follow the host OS language automatically. See [docs/i18n.md](docs/i18n.md). 简体中文版: [README.zh-CN.md](README.zh-CN.md).
 
 ## License
 

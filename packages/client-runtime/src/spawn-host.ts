@@ -90,9 +90,11 @@ export async function waitForReady(options: {
 }
 
 export async function launchHost(options: LaunchOptions): Promise<RunningHost> {
+  const report = options.onProgress
   const env: NodeJS.ProcessEnv = {
     ...(options.env ?? process.env),
   }
+  report?.('resolving')
   const mode = resolveRuntimeMode(options.mode, env)
   const resolved =
     mode === 'download'
@@ -101,6 +103,9 @@ export async function launchHost(options: LaunchOptions): Promise<RunningHost> {
           command: await ensureDownloadedRuntime({
             url: options.downloadUrl || env.DSH_RUNTIME_URL || '',
             cacheDir: options.cacheDir || defaultCacheDir(env),
+            onProgress: (stage: 'download-started' | 'downloaded') => {
+              if (stage === 'download-started') report?.('downloading')
+            },
           }),
         }
       : resolveRuntime({
@@ -128,6 +133,7 @@ export async function launchHost(options: LaunchOptions): Promise<RunningHost> {
   }
   assertLauncherUsable(command, launcherIo)
   const direct = resolveDirectSpawn(command, launcherIo)
+  report?.('spawning')
   const child = direct
     ? spawn(direct.exec, [...direct.prefixArgs, ...webArgs], {
         cwd: options.workspaceCwd,
@@ -168,6 +174,7 @@ export async function launchHost(options: LaunchOptions): Promise<RunningHost> {
   })
   const timeoutMs = options.readyTimeoutMs ?? 30_000
   try {
+    report?.('waiting-ready')
     const ready = await waitForReady({
       readyFile,
       stdoutBuffer,
@@ -179,6 +186,7 @@ export async function launchHost(options: LaunchOptions): Promise<RunningHost> {
       },
     })
     assertLoopbackUrl(ready.url)
+    report?.('ready', ready.url)
     return {
       url: ready.url,
       port: ready.port,

@@ -103,4 +103,27 @@ describe('launchHost integration (fake-dsh)', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('reports launch stage progress in order', async () => {
+    const { command, dir } = writeFakeDshLauncher()
+    const stages: string[] = []
+    let host: Awaited<ReturnType<typeof launchHost>> | undefined
+    try {
+      host = await launchHost({
+        workspaceCwd: tmpdir(),
+        mode: 'local',
+        dshCommand: command,
+        readyTimeoutMs: 8_000,
+        env: { ...process.env, DSH_RUNTIME: 'local' },
+        onProgress: (stage) => {
+          stages.push(stage)
+        },
+      })
+      assert.deepEqual(stages, ['resolving', 'spawning', 'waiting-ready', 'ready'])
+      assert.equal(host.url, 'http://127.0.0.1:41234')
+    } finally {
+      await host?.stop()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

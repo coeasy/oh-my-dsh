@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import type { SpawnSyncReturns } from 'node:child_process'
 import { describe, it } from 'node:test'
 import {
   shutdownLadder,
   killProcessTree,
   killExecutable,
+  killMatchingProcesses,
   sameExecutablePath,
   engineStopPlan,
 } from '../src/shutdown.ts'
@@ -88,6 +90,85 @@ describe('shutdownLadder', () => {
     const { readFileSync } = await import('node:fs')
     const { fileURLToPath } = await import('node:url')
     const text = readFileSync(fileURLToPath(new URL('../src/shutdown.ts', import.meta.url)), 'utf8')
-    assert.doesNotMatch(text, /powershell\.exe/i)
+    // killExecutable must never scan via PowerShell (UI-thread block risk);
+    // killMatchingProcesses may use it only as a wmic-missing fallback.
+    const killExecutableSource = text.slice(
+      text.indexOf('export function killExecutable'),
+      text.indexOf('Strong reap'),
+    )
+    assert.doesNotMatch(killExecutableSource, /powershell/i)
+  })
+})
+
+describe('killMatchingProcesses (Windows enumeration)', () => {
+  type Call = { command: string; args: string[] }
+  const ok = (stdout: string): SpawnSyncReturns<string> =>
+    ({ status: 0, stdout, stderr: '', pid: 1, output: [stdout, ''], error: undefined }) as never
+  const fail = (): SpawnSyncReturns<string> =>
+    ({
+      status: 1,
+      stdout: '',
+      stderr: 'not found',
+      pid: 1,
+      output: ['', ''],
+      error: new Error('ENOENT'),
+    }) as never
+
+  function fakeRunner(responses: {
+    wmic?: () => SpawnSyncReturns<string>
+    powershell?: () => SpawnSyncReturns<string>
+  }): { run: typeof import('node:child_process').spawnSync; calls: Call[] } {
+    const calls: Call[] = []
+    const run = ((command: string, args: readonly string[]) => {
+      calls.push({ command, args: [...args] })
+      if (command === 'wmic') return (responses.wmic ?? fail)()
+      if (command === 'powershell') return (responses.powershell ?? fail)()
+      return ok('')
+    }) as never
+    return { run, calls }
+  }
+
+  it('kills matching pids from wmic output and skips self', () => {
+    const { run, calls } = fakeRunner({
+      wmic: () =>
+        ok(
+          [
+            'Node,CommandLine,ProcessId',
+            'HOST,"node C:\\repo\\harness\\apps\\cli\\lib\\bin.js web --port 1",4321',
+            `HOST,"node unrelated.js",${process.pid}`,
+          ].join('\r\n'),
+        ),
+    })
+    killMatchingProcesses(['apps/cli/lib/bin.js'], 'win32', 999, run)
+    const kills = calls.filter((c) => c.command === 'taskkill')
+    assert.equal(kills.length, 1)
+    assert.deepEqual(kills[0].args, ['/pid', '4321', '/T', '/F'])
+  })
+
+  it('falls back to PowerShell when wmic is missing (Win11 24H2+)', () => {
+    const { run, calls } = fakeRunner({
+      wmic: () => fail(),
+      powershell: () =>
+        ok(
+          ['4322\t"node" C:\\repo\\harness\\apps\\cli\\lib\\bin.js web', '5\tunrelated'].join(
+            '\r\n',
+          ),
+        ),
+    })
+    killMatchingProcesses(['bin.js'], 'win32', 999, run)
+    assert.equal(calls.filter((c) => c.command === 'wmic').length, 1)
+    assert.equal(calls.filter((c) => c.command === 'powershell').length, 1)
+    const kills = calls.filter((c) => c.command === 'taskkill')
+    assert.equal(kills.length, 1)
+    assert.deepEqual(kills[0].args, ['/pid', '4322', '/T', '/F'])
+  })
+
+  it('skips the self pid in the PowerShell fallback too', () => {
+    const { run, calls } = fakeRunner({
+      wmic: () => fail(),
+      powershell: () => ok(`${process.pid}\tnode harness\\apps\\cli\\lib\\bin.js web`),
+    })
+    killMatchingProcesses(['bin.js'], 'win32', process.pid, run)
+    assert.equal(calls.filter((c) => c.command === 'taskkill').length, 0)
   })
 })

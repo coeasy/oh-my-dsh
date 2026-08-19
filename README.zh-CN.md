@@ -1,8 +1,8 @@
 # my-dsh 客户端（DeepSeek Harness 非官方封装）
 
-Unofficial VS Code / Cursor extension and Electron desktop client for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). **Not published by, affiliated with, or endorsed by DeepSeek.**
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的非官方 VS Code / Cursor 扩展与 Electron 桌面客户端。**非 DeepSeek 官方出品，与 DeepSeek 无任何关联或背书。**
 
-> 英文版见 [README.md](README.md)。English version: [README.md](README.md).
+> 英文版见 [README.md](README.md)。
 
 两个客户端共享 `@dsh/client-runtime` 与 Cordis 插件 `@dsh/plugin-embedded-client`。本仓库**不 fork Harness 内核**、**不存储 Harness 源码**。默认克隆目录 `deepseek-harness/` 已被 gitignore。构建时从 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 拉取（GitHub **stable**，否则最新 release）。[`engine.lock.json`](engine.lock.json) 为钉死 / 兜底引用。
 

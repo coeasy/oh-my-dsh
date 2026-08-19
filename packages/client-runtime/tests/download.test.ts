@@ -82,4 +82,90 @@ describe('ensureDownloadedRuntime', () => {
       /non-https/,
     )
   })
+
+  it('rejects a payload whose sha256 does not match', async () => {
+    await assert.rejects(
+      () =>
+        ensureDownloadedRuntime({
+          url: 'https://example.test/dsh.bin',
+          cacheDir,
+          exists: () => false,
+          mkdir: () => {},
+          writeFile: () => {},
+          sha256: 'a'.repeat(64),
+          fetchImpl: async () => httpResponse(new Uint8Array([1, 2, 3, 4]), 200),
+        }),
+      /sha256 mismatch/,
+    )
+  })
+
+  it('accepts a payload whose sha256 matches', async () => {
+    const { createHash } = await import('node:crypto')
+    const payload = new Uint8Array([9, 8, 7, 6])
+    const digest = createHash('sha256').update(payload).digest('hex')
+    const dest = await ensureDownloadedRuntime({
+      url: 'https://example.test/dsh.bin',
+      cacheDir,
+      exists: () => false,
+      mkdir: () => {},
+      writeFile: () => {},
+      sha256: digest,
+      fetchImpl: async () => httpResponse(payload, 200),
+    })
+    assert.equal(dest, cachedBinaryPath(cacheDir))
+  })
+
+  it('retries transient 5xx responses before failing', async () => {
+    let calls = 0
+    await assert.rejects(
+      () =>
+        ensureDownloadedRuntime({
+          url: 'https://example.test/dsh.bin',
+          cacheDir,
+          exists: () => false,
+          mkdir: () => {},
+          writeFile: () => {},
+          retries: 1,
+          fetchImpl: async () => {
+            calls += 1
+            return httpResponse('boom', 503)
+          },
+        }),
+      /HTTP 503/,
+    )
+    assert.equal(calls, 2)
+  })
+
+  it('recovers when a retry succeeds', async () => {
+    let calls = 0
+    const dest = await ensureDownloadedRuntime({
+      url: 'https://example.test/dsh.bin',
+      cacheDir,
+      exists: () => false,
+      mkdir: () => {},
+      writeFile: () => {},
+      retries: 1,
+      fetchImpl: async () => {
+        calls += 1
+        if (calls === 1) return httpResponse('boom', 503)
+        return httpResponse(new Uint8Array([5, 5, 5]), 200)
+      },
+    })
+    assert.equal(calls, 2)
+    assert.equal(dest, cachedBinaryPath(cacheDir))
+  })
+
+  it('reports download progress stages', async () => {
+    const events: string[] = []
+    await ensureDownloadedRuntime({
+      url: 'https://example.test/dsh.bin',
+      cacheDir,
+      exists: () => false,
+      mkdir: () => {},
+      writeFile: () => {},
+      onProgress: (stage) => events.push(stage),
+      fetchImpl: async () => httpResponse(new Uint8Array([1, 1]), 200),
+    })
+    assert.deepEqual(events, ['download-started', 'downloaded'])
+  })
 })

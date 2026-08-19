@@ -14,6 +14,7 @@ import {
 } from 'electron'
 import {
   assertLoopbackUrl,
+  killMatchingProcesses,
   killProcessTree,
   launchHost,
   writeDevLauncher,
@@ -21,6 +22,7 @@ import {
 } from '@dsh/client-runtime'
 import { hasDeepSeekApiKey, upsertEnvKey } from './api-key.ts'
 import { createStatusTray, type StatusTray } from './app-tray.ts'
+import { installMarket, isMarketInstalled, killBootstrapProcesses } from './market-bootstrap.ts'
 import type { RuntimeSnapshot } from './contracts.ts'
 import { buildDiagnosticsReport } from './diagnostics.ts'
 import { loadDesktopSettings, saveDesktopSettings } from './desktop-settings.ts'
@@ -46,7 +48,7 @@ import {
   writeEnginePid,
 } from './quit-session.ts'
 import { secureWindow } from './security.ts'
-import { initObservability, logInfo } from './observability.ts'
+import { initObservability, logInfo, logWarn } from './observability.ts'
 import { isNewerVersion, parseGithubRepo } from './updates.ts'
 import {
   downloadEnginePayload,
@@ -165,6 +167,32 @@ function harnessLocale(): 'en' | 'zh' {
   return app.getLocale().toLowerCase().startsWith('zh') ? 'zh' : 'en'
 }
 
+/** Stage labels for the splash window's status line (B6 launch progress). */
+const LAUNCH_STAGE_TEXT: Record<string, { en: string; zh: string }> = {
+  resolving: { en: 'Locating engine…', zh: '正在定位引擎…' },
+  downloading: { en: 'Downloading engine…', zh: '正在下载引擎…' },
+  spawning: { en: 'Starting engine…', zh: '正在启动引擎…' },
+  'waiting-ready': { en: 'Waiting for engine…', zh: '等待引擎就绪…' },
+  ready: { en: 'Ready', zh: '就绪' },
+}
+
+function setSplashStatus(text: string): void {
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
+  if (!window) return
+  // The splash page exposes #status; update it in place without a preload round-trip.
+  window.webContents
+    .executeJavaScript(
+      `(() => { const el = document.getElementById('status'); if (el) el.textContent = ${JSON.stringify(text)}; })()`,
+      true,
+    )
+    .catch(() => undefined)
+}
+
+function launchStageMessage(stage: string): string {
+  const label = LAUNCH_STAGE_TEXT[stage] ?? { en: 'Starting…', zh: '正在启动…' }
+  return harnessLocale() === 'zh' ? label.zh : label.en
+}
+
 function sidecarDotEnvPath(): string {
   return resolveSidecarDotEnvPath(dirname(app.getPath('exe')), process.env.PORTABLE_EXECUTABLE_DIR)
 }
@@ -264,6 +292,17 @@ async function quitAll(): Promise<void> {
     ])
   } finally {
     clearTimeout(budget)
+    // Strong reap (plan §退出无残留): close any in-flight bootstrap/install
+    // children first, then kill orphaned engine/market processes by command
+    // line — this closes the detached/reparented worker gap that taskkill /T
+    // cannot reach. Match our own artifacts to keep the blast radius tight.
+    killBootstrapProcesses()
+    killMatchingProcesses([
+      'plugin-marketplace',
+      'plugin --profile',
+      'apps/cli/lib/bin.js',
+      'harness/apps/cli/lib/bin.js',
+    ])
     forceExit()
   }
 }
@@ -408,6 +447,16 @@ async function launchHarness(): Promise<void> {
         readyTimeoutMs: 180_000,
         logPath: harnessLogPath(),
         env: spawn.env,
+        onProgress: (stage) => {
+          const message = launchStageMessage(stage)
+          publishSnapshot({
+            phase: 'starting',
+            message,
+            logs: [],
+            launchDirectory,
+          })
+          setSplashStatus(message)
+        },
       }),
     )
     if (!host || quitting) return
@@ -420,6 +469,49 @@ async function launchHarness(): Promise<void> {
       url: host.url,
     })
     await openHarness(host.url)
+    // First-run bootstrap: silently install the bundled official marketplace.
+    // Respects an intentional uninstall: never auto-reinstall once the user
+    // has removed it (marketEverInstalled + marketUserRemoved flags).
+    if (!quitting && engine.dshCommand && !isMarketInstalled(dshHome)) {
+      const userData = app.getPath('userData')
+      const settings = loadDesktopSettings(userData)
+      try {
+        if (settings.marketUserRemoved) {
+          // User removed it intentionally — leave it out.
+        } else if (settings.marketEverInstalled) {
+          // Was auto-installed before but is now missing (removed via CLI).
+          saveDesktopSettings(userData, { ...settings, marketUserRemoved: true })
+        } else {
+          // First run: bundled marketplace ships with the client; fall back to
+          // the repo checkout in development so it works without publishing npm.
+          const marketPath = app.isPackaged
+            ? join(process.resourcesPath, 'plugin-marketplace')
+            : join(repoRoot(), 'plugins', 'plugin-marketplace')
+          const boot = await installMarket(engine.dshCommand, marketPath, dshHome)
+          if (boot.ok && !quitting) {
+            saveDesktopSettings(userData, {
+              ...loadDesktopSettings(userData),
+              marketEverInstalled: true,
+            })
+            const zh = harnessLocale() === 'zh'
+            const opts: Electron.MessageBoxOptions = {
+              type: 'info',
+              message: zh ? '已为你开启插件市场' : 'Plugin Marketplace enabled',
+              detail: zh
+                ? '在 设置 → 插件市场 中浏览并安装社区插件。'
+                : 'Browse and install community plugins under Settings → Marketplace.',
+            }
+            if (mainWindow && !mainWindow.isDestroyed())
+              await dialog.showMessageBox(mainWindow, opts)
+            else await dialog.showMessageBox(opts)
+          } else if (!boot.ok) {
+            logWarn(`marketplace bootstrap failed: ${boot.output}`)
+          }
+        }
+      } catch (error) {
+        logWarn(`marketplace bootstrap error: ${String(error)}`)
+      }
+    }
   } catch (error) {
     rememberEngine(undefined)
     publishSnapshot({
@@ -437,14 +529,19 @@ async function showRuntimeFailure(snapshot: RuntimeSnapshot): Promise<void> {
   failureDialogVisible = true
   try {
     while (!quitting && lastSnapshot.phase === 'failed') {
+      const zh = harnessLocale() === 'zh'
       const options: MessageBoxOptions = {
         type: 'error',
-        title: 'Harness could not start',
+        title: zh ? 'Harness 未能启动' : 'Harness could not start',
         message: snapshot.message,
         detail: snapshot.launchDirectory
-          ? `Launch directory: ${snapshot.launchDirectory}\n\nYou can retry or inspect the Harness log.`
-          : 'You can retry or inspect the Harness log.',
-        buttons: ['Retry', 'Show Log', 'Quit'],
+          ? zh
+            ? `启动目录：${snapshot.launchDirectory}\n\n可以重试或查看 Harness 日志。`
+            : `Launch directory: ${snapshot.launchDirectory}\n\nYou can retry or inspect the Harness log.`
+          : zh
+            ? '可以重试或查看 Harness 日志。'
+            : 'You can retry or inspect the Harness log.',
+        buttons: zh ? ['重试', '查看日志', '退出'] : ['Retry', 'Show Log', 'Quit'],
         defaultId: 0,
         cancelId: 2,
         noLink: true,
@@ -873,6 +970,7 @@ async function bootstrap(): Promise<void> {
     locale: harnessLocale(),
     snapshot: lastSnapshot,
     onShow: showMainWindow,
+    onMarket: showMainWindow,
     onRestart: () => {
       if (!quitting) void launchHarness().catch(showUnexpectedError)
     },

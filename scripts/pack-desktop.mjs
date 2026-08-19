@@ -6,12 +6,16 @@
  * Linux AppImage/zip. Requires `pnpm compile:desktop` first.
  * Set DSH_PACK_SKIP_INSTALLER=1 to only check compile artifacts.
  */
-import { existsSync, readdirSync, readFileSync, renameSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { appResourcesDir } from './app-resources-dir.mjs'
-import { defaultClientScenarios, electronBuilderArgs, parseClientScenarios } from './client-scenarios.mjs'
+import {
+  defaultClientScenarios,
+  electronBuilderArgs,
+  parseClientScenarios,
+} from './client-scenarios.mjs'
 import { isRelocatablePosixLauncher, isRelocatableWinLauncher } from './engine-launcher.mjs'
 import { findReparsePath } from './flatten-harness.mjs'
 import { assertAlignedVersions } from './product-version.mjs'
@@ -19,6 +23,8 @@ import { assertAlignedVersions } from './product-version.mjs'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const appDir = join(root, 'apps', 'desktop')
 const outDir = join(appDir, 'dist-release')
+// May be redirected to an isolated build dir when a previous output is locked.
+let electronOutDir = outDir
 const version = assertAlignedVersions(root)
 const platform = process.platform
 const required = [
@@ -38,7 +44,9 @@ for (const file of required) {
 }
 
 if (process.env.DSH_PACK_SKIP_INSTALLER === '1') {
-  console.log('OK: Electron compile artifacts present; installer skipped (DSH_PACK_SKIP_INSTALLER=1)')
+  console.log(
+    'OK: Electron compile artifacts present; installer skipped (DSH_PACK_SKIP_INSTALLER=1)',
+  )
   process.exit(0)
 }
 
@@ -66,13 +74,17 @@ if (reparse) {
   throw new Error(`pack:desktop: payload still has a reparse point: ${reparse}`)
 }
 
-const proved = spawnSync(process.execPath, [join(root, 'scripts', 'prove-relocatable.mjs'), payloadRoot], {
-  cwd: root,
-  encoding: 'utf8',
-  windowsHide: true,
-  timeout: 60_000,
-  stdio: 'inherit',
-})
+const proved = spawnSync(
+  process.execPath,
+  [join(root, 'scripts', 'prove-relocatable.mjs'), payloadRoot],
+  {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 60_000,
+    stdio: 'inherit',
+  },
+)
 if (proved.status !== 0) {
   throw new Error(`pack:desktop: payload engine is not relocatable (exit ${proved.status})`)
 }
@@ -84,15 +96,43 @@ function desktopScenarioIds() {
 }
 
 function unpackedAppOutDir() {
-  if (platform === 'win32') return join(outDir, 'win-unpacked')
-  if (platform === 'linux') return join(outDir, 'linux-unpacked')
-  const macDir = join(outDir, 'mac')
+  if (platform === 'win32') return join(electronOutDir, 'win-unpacked')
+  if (platform === 'linux') return join(electronOutDir, 'linux-unpacked')
+  const macDir = join(electronOutDir, 'mac')
   const app = existsSync(macDir) ? readdirSync(macDir).find((name) => name.endsWith('.app')) : ''
   if (!app) throw new Error(`pack:desktop missing mac .app in ${macDir}`)
   return join(macDir, app, 'Contents')
 }
 
-const unpackedOut = platform === 'win32' ? join(outDir, 'win-unpacked') : join(outDir, 'linux-unpacked')
+// Best-effort cleanup of leftover build dirs from interrupted runs. These are
+// only our own intermediate dirs (a renamed unpack or an isolated build), never
+// user files, so they are safe to remove.
+function cleanLeftovers(excludeDir) {
+  if (platform === 'darwin' || !existsSync(outDir)) return
+  for (const entry of readdirSync(outDir)) {
+    if (!/\.stale-/u.test(entry) && !/^build-\d+/u.test(entry)) continue
+    const target = join(outDir, entry)
+    // Never remove the current build target (when it is an isolated build-<ts>
+    // dir) — that would delete the artifacts we just produced.
+    if (excludeDir !== undefined && target === excludeDir) continue
+    try {
+      rmSync(target, { recursive: true, force: true })
+      console.log(`pack:desktop: removed leftover ${entry}`)
+    } catch (error) {
+      console.warn(`pack:desktop: could not remove leftover ${entry}: ${String(error.code)}`)
+    }
+  }
+}
+// Pre-build sweep: clear any leftovers from previous runs.
+cleanLeftovers()
+
+// Redirect electron-builder to an isolated output dir when a previous
+// win-unpacked is held open by another process (e.g. a file watcher), so a
+// locked leftover cannot block the whole build.
+let unpackedOut =
+  platform === 'win32'
+    ? join(electronOutDir, 'win-unpacked')
+    : join(electronOutDir, 'linux-unpacked')
 if (platform !== 'darwin' && existsSync(unpackedOut)) {
   const stale = `${unpackedOut}.stale-${Date.now()}`
   try {
@@ -101,9 +141,13 @@ if (platform !== 'darwin' && existsSync(unpackedOut)) {
   } catch (error) {
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
     if (code !== 'EPERM' && code !== 'EACCES') throw error
-    throw new Error(
-      `pack:desktop: ${unpackedOut} is locked (${code}). Close the previous pack output, then retry.`,
-      { cause: error },
+    electronOutDir = join(outDir, `build-${Date.now()}`)
+    unpackedOut =
+      platform === 'win32'
+        ? join(electronOutDir, 'win-unpacked')
+        : join(electronOutDir, 'linux-unpacked')
+    console.warn(
+      `pack:desktop: ${stale} is locked (${code}); building into isolated ${electronOutDir}`,
     )
   }
 }
@@ -111,12 +155,21 @@ if (platform !== 'darwin' && existsSync(unpackedOut)) {
 const targets = desktopScenarioIds()
 const builderArgs = electronBuilderArgs(targets, platform)
 if (builderArgs.length === 0) {
-  throw new Error(`pack:desktop: no electron-builder targets for ${platform} (${targets.join(',')})`)
+  throw new Error(
+    `pack:desktop: no electron-builder targets for ${platform} (${targets.join(',')})`,
+  )
 }
 console.log(`pack:desktop: ${platform} ${builderArgs.join(' ')}`)
 const packed = spawnSync(
   'pnpm',
-  ['exec', 'electron-builder', ...builderArgs, '-c.directories.output=dist-release', '--publish', 'never'],
+  [
+    'exec',
+    'electron-builder',
+    ...builderArgs,
+    `-c.directories.output=${electronOutDir.replace(/\\/g, '/')}`,
+    '--publish',
+    'never',
+  ],
   {
     cwd: appDir,
     encoding: 'utf8',
@@ -148,27 +201,34 @@ const unpackedReparse = findReparsePath(join(unpackedRuntime, 'harness'))
 if (unpackedReparse) {
   throw new Error(`pack:desktop: unpacked harness still has a reparse point: ${unpackedReparse}`)
 }
-const unpacked = spawnSync(process.execPath, [join(root, 'scripts', 'prove-relocatable.mjs'), unpackedRuntime], {
-  cwd: root,
-  encoding: 'utf8',
-  windowsHide: true,
-  timeout: 60_000,
-  stdio: 'inherit',
-})
+const unpacked = spawnSync(
+  process.execPath,
+  [join(root, 'scripts', 'prove-relocatable.mjs'), unpackedRuntime],
+  {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 60_000,
+    stdio: 'inherit',
+  },
+)
 if (unpacked.status !== 0) {
   throw new Error(`pack:desktop: unpacked runtime is not relocatable (exit ${unpacked.status})`)
 }
 
-const listed = existsSync(outDir) ? readdirSync(outDir) : []
+const listed = existsSync(electronOutDir) ? readdirSync(electronOutDir) : []
 function hasArtifact(predicate) {
   return listed.some((name) => predicate(name))
 }
 
-if (targets.includes('nsis') && !existsSync(join(outDir, `my-dsh-Setup-${version}.exe`))) {
-  throw new Error(`pack:desktop missing my-dsh-Setup-${version}.exe in ${outDir}`)
+if (targets.includes('nsis') && !existsSync(join(electronOutDir, `my-dsh-Setup-${version}.exe`))) {
+  throw new Error(`pack:desktop missing my-dsh-Setup-${version}.exe in ${electronOutDir}`)
 }
-if (targets.includes('portable') && !existsSync(join(outDir, `my-dsh-${version}-portable.exe`))) {
-  throw new Error(`pack:desktop missing my-dsh-${version}-portable.exe in ${outDir}`)
+if (
+  targets.includes('portable') &&
+  !existsSync(join(electronOutDir, `my-dsh-${version}-portable.exe`))
+) {
+  throw new Error(`pack:desktop missing my-dsh-${version}-portable.exe in ${electronOutDir}`)
 }
 if (targets.includes('zip')) {
   const zipName =
@@ -178,30 +238,46 @@ if (targets.includes('zip')) {
         ? `my-dsh-${version}-mac.zip`
         : `my-dsh-${version}-linux.zip`
   if (!hasArtifact((name) => name === zipName || name === `my-dsh-${version}-win.zip`)) {
-    throw new Error(`pack:desktop missing ${zipName} in ${outDir}`)
+    throw new Error(`pack:desktop missing ${zipName} in ${electronOutDir}`)
   }
 }
-if (targets.includes('dmg') && !hasArtifact((name) => name.endsWith('.dmg') && name.includes(version))) {
-  throw new Error(`pack:desktop missing dmg for ${version} in ${outDir}`)
+if (
+  targets.includes('dmg') &&
+  !hasArtifact((name) => name.endsWith('.dmg') && name.includes(version))
+) {
+  throw new Error(`pack:desktop missing dmg for ${version} in ${electronOutDir}`)
 }
-if (targets.includes('appimage') && !hasArtifact((name) => name.endsWith('.AppImage') && name.includes(version))) {
-  throw new Error(`pack:desktop missing AppImage for ${version} in ${outDir}`)
+if (
+  targets.includes('appimage') &&
+  !hasArtifact((name) => name.endsWith('.AppImage') && name.includes(version))
+) {
+  throw new Error(`pack:desktop missing AppImage for ${version} in ${electronOutDir}`)
 }
 
-const sums = spawnSync(process.execPath, [join(root, 'scripts', 'checksum-release.mjs'), outDir, version], {
-  cwd: root,
-  encoding: 'utf8',
-  windowsHide: true,
-  timeout: 120_000,
-  stdio: 'inherit',
-})
+const sums = spawnSync(
+  process.execPath,
+  [join(root, 'scripts', 'checksum-release.mjs'), electronOutDir, version],
+  {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 120_000,
+    stdio: 'inherit',
+  },
+)
 if (sums.status !== 0) {
   throw new Error(`pack:desktop: checksum-release failed (exit ${sums.status})`)
 }
-if (targets.includes('nsis')) console.log(`OK: NSIS installer ${join(outDir, `my-dsh-Setup-${version}.exe`)}`)
+if (targets.includes('nsis'))
+  console.log(`OK: NSIS installer ${join(electronOutDir, `my-dsh-Setup-${version}.exe`)}`)
 if (targets.includes('portable')) {
-  console.log(`OK: portable exe ${join(outDir, `my-dsh-${version}-portable.exe`)}`)
+  console.log(`OK: portable exe ${join(electronOutDir, `my-dsh-${version}-portable.exe`)}`)
 }
-if (targets.includes('zip')) console.log(`OK: zip in ${outDir}`)
-if (targets.includes('dmg')) console.log(`OK: dmg in ${outDir}`)
-if (targets.includes('appimage')) console.log(`OK: AppImage in ${outDir}`)
+if (targets.includes('zip')) console.log(`OK: zip in ${electronOutDir}`)
+if (targets.includes('dmg')) console.log(`OK: dmg in ${electronOutDir}`)
+if (targets.includes('appimage')) console.log(`OK: AppImage in ${electronOutDir}`)
+
+// Post-build sweep: this run may have renamed a locked previous unpack to
+// .stale-<ts> (or built into a fresh build-<ts>); clear those leftovers now
+// so a successful pack leaves no debris behind.
+cleanLeftovers(electronOutDir)

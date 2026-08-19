@@ -5,6 +5,10 @@ export interface DesktopSettings {
   workspace?: string
   autoUpdate?: boolean
   apiKeyPrompted?: boolean
+  /** True once the bundled marketplace was ever auto-installed (first-run). */
+  marketEverInstalled?: boolean
+  /** True when the user intentionally removed the marketplace — never auto-reinstall. */
+  marketUserRemoved?: boolean
 }
 
 export function desktopSettingsPath(userDataPath: string): string {
@@ -20,6 +24,8 @@ export function parseDesktopSettings(text: string): DesktopSettings {
     workspace?: unknown
     autoUpdate?: unknown
     apiKeyPrompted?: unknown
+    marketEverInstalled?: unknown
+    marketUserRemoved?: unknown
   }
   const settings: DesktopSettings = {}
   if (typeof record.workspace === 'string' && record.workspace.trim()) {
@@ -27,6 +33,10 @@ export function parseDesktopSettings(text: string): DesktopSettings {
   }
   if (typeof record.autoUpdate === 'boolean') settings.autoUpdate = record.autoUpdate
   if (typeof record.apiKeyPrompted === 'boolean') settings.apiKeyPrompted = record.apiKeyPrompted
+  if (typeof record.marketEverInstalled === 'boolean')
+    settings.marketEverInstalled = record.marketEverInstalled
+  if (typeof record.marketUserRemoved === 'boolean')
+    settings.marketUserRemoved = record.marketUserRemoved
   return settings
 }
 

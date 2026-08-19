@@ -41,6 +41,11 @@
               "command": "dsh.stop",
               "title": "DeepSeek Harness: Stop",
               "category": "DeepSeek Harness"
+            },
+            {
+              "command": "dsh.marketplace.open",
+              "title": "DeepSeek Harness: Plugin Marketplace",
+              "category": "DeepSeek Harness"
             }
     ],
     "configuration": {

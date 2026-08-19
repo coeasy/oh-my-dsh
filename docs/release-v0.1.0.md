@@ -24,12 +24,12 @@
 ### 🐛 修复
 - 首个版本，暂无修复记录
 
-> 完整逐条变更见 [CHANGELOG.md](./CHANGELOG.md)。
+> 完整逐条变更见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ## 上游引擎版本
 
 - Harness 仓库：`https://github.com/deepseek-ai/deepseek-harness`
-- 本版本钉死：`ref = dsh-v0.1.0-rc.7`，`commit = 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca`（见 [`engine.lock.json`](./engine.lock.json)）
+- 本版本钉死：`ref = dsh-v0.1.0-rc.7`，`commit = 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca`（见 [`engine.lock.json`](../engine.lock.json)）
 
 ## 下载与校验
 

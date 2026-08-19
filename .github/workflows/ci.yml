@@ -46,6 +46,9 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: Dependency audit (high+ only)
+        run: pnpm audit --prod --audit-level high
+
       - name: Layer audit
         run: pnpm audit:layers
 

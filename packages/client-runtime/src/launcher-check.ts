@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, posix, win32 } from 'node:path'
+import { dirname, posix, win32 } from 'node:path'
 
 export interface DirectSpawn {
   /** Absolute `node` / Electron image. */
@@ -61,7 +61,9 @@ export function assertLauncherUsable(command: string, io: LauncherIo): string {
   if (!/\.cmd$/iu.test(raw)) return raw
   const text = io.read(raw)
   for (const target of quotedWinPaths(text)) {
-    if (!isAbsolute(target)) continue
+    // `.cmd` wrappers are always Windows; judge targets with Windows path
+    // semantics so the check also holds when the suite runs on POSIX hosts.
+    if (!win32.isAbsolute(target)) continue
     if (io.exists(target)) continue
     throw new Error(
       `stale engine launcher ${raw} points at missing ${target}. Run .\\build-clients.cmd or pnpm fetch:engine && pnpm engine:build`,
