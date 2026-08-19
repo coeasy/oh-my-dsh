@@ -72,7 +72,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          draft: false
+          name: my-dsh ${{ github.ref_name }}
+          # Auto-generated notes from merged PRs/commits; maintainers may add a
+          # hand-written body first by editing the release before publishing, or
+          # pre-fill from docs/release-template.md.
+          generate_release_notes: true
+          draft: true
           prerelease: false
           files: dist/**

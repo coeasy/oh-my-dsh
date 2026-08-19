@@ -67,6 +67,8 @@ Beyond the manual tag above, the repo ships an optional **fully-automated** loop
 
 To enable it, ensure the `version` workflow has `contents: write` (already set) and that `main` has branch protection requiring the `verify` check. The first release can still use the manual tag path.
 
+Releases are created as **drafts** with auto-generated notes; before publishing, fill in product details (upstream engine pin, install/verify steps, signature status) from the template in [docs/release-template.md](release-template.md).
+
 ### Auto-update
 
 The desktop app currently ships **manual update checks only** (menu → Check for Updates opens the GitHub Release for the user to download and verify). The `publish` block in [`apps/desktop/electron-builder.yml`](../apps/desktop/electron-builder.yml) is kept so every release also emits the auto-update metadata (`latest.yml` on Windows / `latest-mac.yml` / `latest-linux.yml`) — this is the infrastructure a future [electron-updater](https://www.electron.build/auto-update) integration needs. `GH_OWNER` / `GH_REPO` are injected from the repository in the release job, so no extra secret is required.
