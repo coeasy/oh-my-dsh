@@ -2,7 +2,7 @@
  * Build the fetched DeepSeek Harness clone in place. Does not edit kernel
  * sources: only pnpm install + documented build scripts.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,45 +15,80 @@ if (!existsSync(pkg)) {
   throw new Error(`build-engine: missing ${pkg} — run pnpm fetch:engine first`)
 }
 
-function run(command, args) {
+function run(command, args, { quiet = false, check = true } = {}) {
   const result = spawnSync(command, args, {
     cwd: dest,
     encoding: 'utf8',
     shell: process.platform === 'win32',
     windowsHide: true,
-    stdio: 'inherit',
+    stdio: quiet ? ['ignore', 'pipe', 'pipe'] : 'inherit',
     timeout: 3_600_000,
-    env: process.env,
+    env: quiet ? { ...process.env, PNPM_CONFIG_REPORTER: 'silent' } : process.env,
   })
-  if (result.status !== 0) {
+  if (check && result.status !== 0) {
+    if (quiet) {
+      if (result.stdout) process.stdout.write(result.stdout)
+      if (result.stderr) process.stderr.write(result.stderr)
+    }
     throw new Error(`build-engine: ${command} ${args.join(' ')} failed (exit ${result.status})`)
   }
+  return result
 }
 
-run('pnpm', ['install', '--frozen-lockfile'])
-run('pnpm', ['run', 'build'])
-const web = spawnSync('pnpm', ['run', 'build:web'], {
-  cwd: dest,
-  encoding: 'utf8',
-  shell: process.platform === 'win32',
-  windowsHide: true,
-  stdio: 'inherit',
-  timeout: 1_800_000,
-  env: process.env,
-})
-if (web.status !== 0) {
-  const alt = spawnSync('pnpm', ['--filter', '@deepseek-ai/dsh-web', 'run', 'build'], {
-    cwd: dest,
-    encoding: 'utf8',
-    shell: process.platform === 'win32',
-    windowsHide: true,
-    stdio: 'inherit',
-    timeout: 1_800_000,
-    env: process.env,
-  })
-  if (alt.status !== 0) {
-    throw new Error(`build-engine: web build failed (exit ${web.status})`)
+// The Harness workspace contains optional native packages, examples, and
+// cyclic test-only packages that are not part of the desktop runtime. Keep
+// pnpm's install diagnostics out of the product build while still replaying
+// the complete output when a command fails.
+run('pnpm', ['--reporter=silent', 'install', '--frozen-lockfile'], { quiet: true })
+run('pnpm', ['--reporter=silent', 'run', 'build'], { quiet: true })
+
+// The upstream web config deliberately reports oversized language/vendor
+// chunks. The build layout already puts those chunks behind stable boundaries;
+// supply the documented Vite limit through a disposable overlay so the clone
+// remains untouched and the warning is not emitted by release builds.
+const webConfig = '.dsh-vite-ci.config.ts'
+writeFileSync(
+  join(dest, 'apps', 'web', webConfig),
+  "import baseConfig from './vite.config.ts'\n\nexport default {\n  ...baseConfig,\n  build: {\n    ...(baseConfig.build ?? {}),\n    chunkSizeWarningLimit: 1024,\n  },\n}\n",
+  'utf8',
+)
+try {
+  const webArgs = [
+    '--reporter=silent',
+    '--filter',
+    '@deepseek-ai/dsh-web-frontend',
+    'run',
+    'build',
+    '--',
+    '--config',
+    webConfig,
+  ]
+  const web = run('pnpm', webArgs, { quiet: true, check: false })
+  if (web.status !== 0) {
+    const alt = run(
+      'pnpm',
+      [
+        '--reporter=silent',
+        '--filter',
+        '@deepseek-ai/dsh-web-frontend',
+        'exec',
+        'vite',
+        'build',
+        '--config',
+        webConfig,
+      ],
+      { quiet: true, check: false },
+    )
+    if (alt.status !== 0) {
+      if (web.stdout) process.stdout.write(web.stdout)
+      if (web.stderr) process.stderr.write(web.stderr)
+      if (alt.stdout) process.stdout.write(alt.stdout)
+      if (alt.stderr) process.stderr.write(alt.stderr)
+      throw new Error(`build-engine: web build failed (exit ${web.status})`)
+    }
   }
+} finally {
+  rmSync(join(dest, 'apps', 'web', webConfig), { force: true })
 }
 
 const bin = join(dest, 'apps', 'cli', 'lib', 'bin.js')

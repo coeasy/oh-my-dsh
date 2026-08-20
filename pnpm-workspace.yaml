@@ -1,4 +1,10 @@
 packages:
-  - "plugins/*"
-  - "packages/*"
-  - "apps/*"
+  - 'plugins/*'
+  - 'packages/*'
+  - 'apps/*'
+allowBuilds:
+  '@vscode/vsce-sign': true
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  keytar: true

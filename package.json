@@ -4,16 +4,7 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "packageManager": "pnpm@10.0.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "electron-winstaller",
-      "esbuild",
-      "keytar",
-      "@vscode/vsce-sign"
-    ]
-  },
+  "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": ">=22"
   },
