@@ -1,71 +1,67 @@
-# P0：安装包体积优化
+# oh-my-dsh 优化改进计划（总纲）
 
-> 目标：Setup.exe 由 200MB 降至 ≤80MB，portable/zip 同步缩减。
-> 优先级：★★★★★（直接影响下载与安装体验）。
+> 编制日期：2026-08-19
+> 范围：`D:\workspace\oh-my-dsh` 全仓库（apps/desktop、apps/vscode、packages/client-runtime、plugins/embedded-client、plugins/plugin-marketplace、scripts、runtime）
+> 文档结构：
 
-## 现状与根因
-
-| 组件 | 大小 | 说明 |
+| 文档 | 内容 | 优先级 |
 |---|---|---|
-| `runtime/payload/harness` | 894MB | DSH 克隆展平（含各 package 的 node_modules 与 web 编译产物） |
-| `node.exe` | 86MB | 运行时依赖，无法剥离，可考虑复用 Electron 自带 Node 或精简 |
-| Electron 本体 | 202MB | `my-dsh.exe`，压缩后占比下降 |
-| `locales` | 45MB | 只用到少数语言，可裁剪 |
-| **Setup.exe** | **200MB** | 压缩后 |
+| [optimization-size.md](optimization-size.md) | 安装包体积优化（当前最痛点） | ★★★★★ P0 ✅ |
+| [optimization-tests.md](optimization-tests.md) | 插件市场测试补齐 + 关键路径单测 | ★★★★★ P0 ✅ |
+| [optimization-security.md](optimization-security.md) | 安全加固（npm integrity、引擎校验、CSP） | ★★★★☆ P1 ✅ |
+| [optimization-ux.md](optimization-ux.md) | 用户体验改进（加载/安装进度、离线、引导） | ★★★☆☆ P2 ✅ |
+| [optimization-engineering.md](optimization-engineering.md) | 工程化改进（CI、依赖、E2E、版本管理） | ★★★☆☆ P2 🔄 |
 
-**根因链路**：`scripts/stage-payload.mjs` → 展平整个 DSH 克隆 → `runtime/payload/harness`（894MB）→ `electron-builder.yml` 的 `win.extraResources` 整体打入安装包。
+> ✅ 已完成　🔄 部分完成（详见各分项文档末尾的“落地状态”）
 
-## 优化方案（可组合）
+## 现状诊断摘要
 
-### A1. 按需下载 Harness 运行时（推荐，收益最大）
+### 安装包体积（P0，最痛点）
 
-**思路**：安装包不再内置 894MB harness，改为首次启动时从 GitHub Release 下载已编译的 harness 压缩包（约 30–60MB），解压到用户缓存目录（`~/.dsh-client/runtime`），加 checksum 校验与版本缓存。
+实测产物（Windows）：
 
-- **收益**：安装包直接 -894MB，Setup.exe 可降至 ~60MB。
-- **实现**：
-  1. 发布流程新增 `harness-<version>-<platform>.tar.gz` 产物（由 CI 对克隆精简后压缩，仅含运行所需：`apps/cli/lib/bin.js`、`dsh-app-boot`、web dist、最小 node_modules）。
-  2. 客户端 `engine-updater.ts` / `download.ts` 增加"首次下载+解压+校验"分支。
-  3. `launch-config.ts` 解析 runtime 时，若 bundled 缺失则回退 download 模式（已有 `DSH_RUNTIME=download` 通道，复用 `DSH_RUNTIME_URL`/`DSH_RUNTIME_CACHE`）。
-  4. 断网/失败时给出明确提示与重试入口。
-- **验收**：全新机器联网首启可自动拉取引擎；断网时提示而非崩溃；安装包 ≤80MB。
-
-### A2. 精简内置 Harness（若保留内置，作为 A1 的降级方案）
-
-在 `stage-payload.mjs` 展平前进一步裁剪：
-
-- `copy-harness.mjs` 的 `STAGE_EXCLUDE_DIRS` 增加：`**/node_modules/.cache`、`**/dist/*.map`、`apps/cli/node_modules/**/test`、`**/*.d.ts`（保留声明按需评估）。
-- 对 `apps/web/dist` 做 `--minify` 复检；去掉非必需的 `locales`。
-- `pnpm prune --prod` 级别精简（在克隆只读约束下，改为展平后清理无用依赖目录）。
-- **预估收益**：-300~500MB，Setup.exe 可降至 ~100–120MB，但不如 A1 彻底。
-
-### A3. 精简 Electron 运行时（辅助，必做）
-
-- `locales`：electron-builder 通过 `win.extraResources` 不拷贝，改用 `electron-builder` 的 `electronLanguages`（或打包后删除除 `zh-CN`/`en-US` 外全部语言包）。**-40MB**。
-- 确认 `asar: true` 已生效（当前已开启）；核对 `files` 白名单只含 `out/main.js`、`out/preload.cjs`、`package.json`（当前已配置）。
-- 关闭 `electron-builder` 默认附带的多余资源（如 `LICENSES.chromium.html` 可保留）。
-
-### A4. 提升压缩等级（必做，改动最小）
-
-- `electron-builder.yml`：`compression: normal` → `compression: maximum`（LZMA2 高压缩）。
-- **预估收益**：Setup/portable 再 -10~20%，zip 略增压缩时间但体积下降。
-- 注意：`compression: maximum` 会显著增加打包耗时（当前 NSIS 已较慢），CI 可接受。
-
-### A5. 复用 Electron 自带 Node（可选）
-
-- Electron 运行时已内嵌 Node，若 dsh web 可用 Electron 的 Node 启动，可去掉独立的 86MB `node.exe`。
-- 需验证 dsh CLI 脚本与 Electron Node 版本兼容性；风险较高，列为远期探索。
-
-## 推荐实施路径
-
-| 步骤 | 动作 | 依赖 |
+| 组件 | 大小 | 占比 |
 |---|---|---|
-| 1 | A4 压缩改 maximum + A3 裁剪 locales | 无 |
-| 2 | A1 按需下载 harness（核心收益） | 需先建 Release 压缩产物与校验链 |
-| 3 | （可选）A5 复用 Electron Node | 需兼容性验证 |
+| `runtime/payload/harness`（DSH 克隆展平） | **894 MB** | ~68% |
+| `node.exe`（Node 运行时） | **86 MB** | ~7% |
+| `my-dsh.exe`（Electron 本体） | **202 MB** | ~15% |
+| `locales`（Chromium 语言包） | **45 MB** | ~3% |
+| 其他 DLL/pak/icu | ~100 MB | ~7% |
+| **win-unpacked 解压总大小** | **1.3 GB** | — |
+| **Setup.exe（NSIS 压缩后）** | **200 MB** | — |
+| **portable.exe** | **199 MB** | — |
+| **win.zip** | **378 MB** | — |
 
-## 验收标准
+**根因**：`scripts/stage-payload.mjs` 把整个 DSH 克隆（含各 package 的 node_modules 依赖与编译产物）展平进 `runtime/payload/harness`，再整体塞入安装包。虽已排除 `.git/website/docs/tests/python/native` 等目录，node_modules 与 web 编译产物仍占 894MB。
 
-- [ ] `Setup.exe` ≤ 80MB（联网首启自动拉取引擎），离线场景有明确提示。
-- [ ] `portable.exe`、`win.zip` 同比例缩减。
-- [ ] 全新环境 `pnpm pack:desktop` 后安装运行，`dsh web` 正常拉起，插件市场可用。
-- [ ] `pnpm verify` 全绿。
+### 测试覆盖缺口（P0）
+
+- 全仓 44 个测试文件（desktop 29 + client-runtime 13 + vscode 2 + embedded 1），**插件市场 0 测试**。
+- `plugins/plugin-marketplace/src/` 约 1200 行核心逻辑（dshHomeOf 路径解析、安装/卸载/备份/校验/前端状态机）完全无单测覆盖。
+
+### 安全薄弱点（P1）
+
+- `verify.ts` 仅校验 lifecycle scripts 与 npm squat，未校验包 `dist.integrity` 或发布者身份。
+- `engine-updater` 下载引擎未校验签名/checksum manifest。
+- 桌面端 preload/窗口安全策略需复核（`contextIsolation`/`sandbox`/`nodeIntegration`）。
+
+### 体验与工程化（P2）
+
+- 市场加载已实现渐进式 + 进度提示，但安装过程无实时进度条。
+- 在线数据源全部失败时无明确离线提示。
+- 无桌面端 E2E 测试（仅 VS Code 有）。
+- README / 首次启动引导薄弱。
+
+## 优先级总览（ROI 排序）
+
+| 优先级 | 事项 | 理由 | 预估工作量 |
+|---|---|---|---|
+| ★★★★★ | 2 体积优化（剥离源码/按需下载/最大压缩） | 直接影响下载与安装体验，200MB→≤80MB | 1–2 天 |
+| ★★★★★ | 3 插件市场单测 | 核心逻辑零覆盖，回归风险高 | 0.5–1 天 |
+| ★★★★☆ | 4 安全加固（integrity/签名/CSP 复核） | 分发产品的可信度与合规 | 1 天 |
+| ★★★☆☆ | 5 体验改进（进度条/离线/引导） | 提升用户满意度 | 1 天 |
+| ★★★☆☆ | 6 工程化（E2E/CI/依赖审计） | 长期质量保障 | 1–2 天 |
+
+## 执行顺序
+
+按 `P0 → P1 → P2` 顺序推进，每个优化项验收通过后合入主分支再进入下一项，避免同时改动引入回归。详细步骤见各分项文档。
