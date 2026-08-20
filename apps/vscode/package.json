@@ -6,7 +6,7 @@
     "type": "git",
     "url": "https://github.com/coeasy/oh-my-dsh.git"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "publisher": "dsh-client",
   "icon": "media/icon.png",
@@ -17,7 +17,9 @@
   "engines": {
     "vscode": "^1.90.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [
     "onCommand:dsh.open",
     "onCommand:dsh.stop"
@@ -32,28 +34,31 @@
   },
   "contributes": {
     "commands": [
-            {
-              "command": "dsh.open",
-              "title": "DeepSeek Harness: Open",
-              "category": "DeepSeek Harness"
-            },
-            {
-              "command": "dsh.stop",
-              "title": "DeepSeek Harness: Stop",
-              "category": "DeepSeek Harness"
-            },
-            {
-              "command": "dsh.marketplace.open",
-              "title": "DeepSeek Harness: Plugin Marketplace",
-              "category": "DeepSeek Harness"
-            }
+      {
+        "command": "dsh.open",
+        "title": "DeepSeek Harness: Open",
+        "category": "DeepSeek Harness"
+      },
+      {
+        "command": "dsh.stop",
+        "title": "DeepSeek Harness: Stop",
+        "category": "DeepSeek Harness"
+      },
+      {
+        "command": "dsh.marketplace.open",
+        "title": "DeepSeek Harness: Plugin Marketplace",
+        "category": "DeepSeek Harness"
+      }
     ],
     "configuration": {
       "title": "DeepSeek Harness",
       "properties": {
         "dsh.runtime": {
           "type": "string",
-          "enum": ["local", "download"],
+          "enum": [
+            "local",
+            "download"
+          ],
           "default": "local",
           "description": "local uses PATH dsh. download uses the cached runtime. Unset in development prefers the repo clone."
         },
