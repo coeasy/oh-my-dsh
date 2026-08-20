@@ -1,6 +1,6 @@
 {
   "name": "@coeasy/dsh-plugin-marketplace",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Plugin marketplace for DeepSeek Harness — browse, install, update and manage community plugins through the official dsh CLI. · DSH 插件市场：逛、搜、一键安装，全部走官方通道。",
   "type": "module",
   "main": "lib/index.js",
