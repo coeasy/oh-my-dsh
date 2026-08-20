@@ -79,4 +79,25 @@ jobs:
           generate_release_notes: true
           draft: true
           prerelease: false
-          files: dist/**
+          # download-artifact also restores the unpacked Electron app trees.
+          # Upload only distributable files; dist/** would publish app.asar,
+          # Chromium internals, and thousands of implementation files.
+          files: |
+            dist/**/my-dsh-Setup-*.exe
+            dist/**/my-dsh-*-portable.exe
+            dist/**/my-dsh-*-win.zip
+            dist/**/my-dsh-*-mac.zip
+            dist/**/my-dsh-*-mac.dmg
+            dist/**/my-dsh-*-linux.zip
+            dist/**/my-dsh-*-linux.AppImage
+            dist/**/my-dsh-*.blockmap
+            dist/**/my-dsh-online-Setup-*.exe
+            dist/**/my-dsh-online-*-portable.exe
+            dist/**/my-dsh-online-*-win.zip
+            dist/**/my-dsh-online-*-mac.zip
+            dist/**/my-dsh-online-*-mac.dmg
+            dist/**/my-dsh-online-*-linux.zip
+            dist/**/my-dsh-online-*-linux.AppImage
+            dist/**/my-dsh-online-*.blockmap
+            dist/**/*.vsix
+            dist/**/SHA256SUMS.txt
