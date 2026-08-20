@@ -79,10 +79,11 @@ describe('electron-builder manifest', () => {
     assert.match(preload, /contextBridge\.exposeInMainWorld\('dshDesktop'/)
     assert.match(preload, /ipcRenderer\.invoke\('mobile:open-pairing'\)/)
     const onlineYml = readFileSync(join(desktop, 'electron-builder-online.yml'), 'utf8')
-    assert.match(onlineYml, /extends: \.\/electron-builder\.yml/)
+    assert.doesNotMatch(onlineYml, /extends: \.\/electron-builder\.yml/)
+    assert.match(onlineYml, /appId: com\.mydsh\.desktop/)
+    assert.match(onlineYml, /files:\n  - out\/main\.js/)
     assert.match(onlineYml, /from: runtime-system\.json/)
     assert.match(onlineYml, /my-dsh-online-Setup-/)
-    assert.match(onlineYml, /extraResources: \[\]/)
     assert.doesNotMatch(onlineYml, /runtime\/payload/)
     const dualPack = readFileSync(
       join(desktop, '..', '..', 'scripts', 'pack-desktop-editions.mjs'),

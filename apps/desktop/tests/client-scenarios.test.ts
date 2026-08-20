@@ -65,6 +65,10 @@ describe('pack resources dir', () => {
       join('/out/App.app/Contents', 'Resources'),
     )
     assert.equal(
+      appResourcesDir('/out/App.app/Contents', 'mac'),
+      join('/out/App.app/Contents', 'Resources'),
+    )
+    assert.equal(
       appResourcesDir('/out/linux-unpacked', 'linux'),
       join('/out/linux-unpacked', 'resources'),
     )
