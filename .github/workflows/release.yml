@@ -71,8 +71,11 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: my-dsh ${{ github.ref_name }}
+          # A manual run has a branch ref (usually `main`), not a release tag.
+          # Give it a unique tag so stale draft assets cannot collide with a
+          # later verification run; tag-triggered releases keep their tag.
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_number) || github.ref_name }}
+          name: my-dsh ${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_number) || github.ref_name }}
           # Auto-generated notes from merged PRs/commits; maintainers may add a
           # hand-written body first by editing the release before publishing, or
           # pre-fill from docs/release-template.md.
