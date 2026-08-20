@@ -29,7 +29,9 @@ const vsce = spawnSync(
   {
     cwd: extDir,
     encoding: 'utf8',
-    shell: false,
+    // pnpm.cmd is a Windows command shim and must be launched through the
+    // shell on Windows; direct spawn otherwise exits with status === null.
+    shell: process.platform === 'win32',
     windowsHide: true,
     timeout: 120_000,
   },
