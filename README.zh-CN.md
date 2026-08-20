@@ -29,7 +29,7 @@ pnpm fetch:engine
 
 ## 改进路线图
 
-分阶段改进计划（工程卫生 → 质量加固 → 功能扩展 → 长期方向）见 [docs/improvement/README.md](docs/improvement/README.md)。
+当前改进路线图见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 一键构建与安装
 

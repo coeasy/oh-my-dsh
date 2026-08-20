@@ -36,7 +36,8 @@ extraFiles:
 afterPack: after-pack.cjs
 # maximum yields no size win here: the payload is already source+node_modules
 # (mostly incompressible) and makes NSIS/portable builds ~5x slower. The real
-# size fix is removing the bundled harness (see docs/optimization/optimization-size.md).
+# The system-runtime edition removes the bundled harness; see
+# apps/desktop/electron-builder-online.yml and docs/roadmap.md.
 compression: normal
 # Only ship the locales the UI actually uses (Chromium ships ~70 locales, ~45MB).
 electronLanguages:
