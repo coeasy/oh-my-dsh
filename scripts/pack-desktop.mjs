@@ -98,10 +98,16 @@ function desktopScenarioIds() {
 function unpackedAppOutDir() {
   if (platform === 'win32') return join(electronOutDir, 'win-unpacked')
   if (platform === 'linux') return join(electronOutDir, 'linux-unpacked')
-  const macDir = join(electronOutDir, 'mac')
-  const app = existsSync(macDir) ? readdirSync(macDir).find((name) => name.endsWith('.app')) : ''
-  if (!app) throw new Error(`pack:desktop missing mac .app in ${macDir}`)
-  return join(macDir, app, 'Contents')
+  const macDirs = existsSync(electronOutDir)
+    ? readdirSync(electronOutDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && /^mac(?:-|$)/u.test(entry.name))
+        .map((entry) => join(electronOutDir, entry.name))
+    : []
+  for (const macDir of macDirs) {
+    const app = readdirSync(macDir).find((name) => name.endsWith('.app'))
+    if (app) return join(macDir, app, 'Contents')
+  }
+  throw new Error(`pack:desktop missing mac .app in ${macDirs.join(', ') || electronOutDir}`)
 }
 
 // Best-effort cleanup of leftover build dirs from interrupted runs. These are

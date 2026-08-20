@@ -10,7 +10,10 @@ export function toPatchModuleName(pluginAbsPath: string): string {
   // The engine uses Windows paths even when this helper is exercised by a
   // POSIX CI runner. Without the explicit option, pathToFileURL treats a
   // Windows path as a relative POSIX path and prefixes the runner cwd.
-  return pathToFileURL(path, { windows: win32.isAbsolute(path) }).href
+  if (win32.isAbsolute(path)) return pathToFileURL(path, { windows: true }).href
+  // Keep POSIX fixtures and paths POSIX on every host. Native pathToFileURL
+  // otherwise interprets `/workspace` as the current drive on Windows.
+  return `file://${encodeURI(path)}`
 }
 
 export function buildPatchYaml(pluginAbsPath: string): string {
