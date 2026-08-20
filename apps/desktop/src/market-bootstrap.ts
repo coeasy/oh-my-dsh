@@ -8,9 +8,10 @@
  * pnpm-tracked, reconcile-registered and removable by the official CLI.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { resolveDirectSpawn } from '@dsh/client-runtime'
 
 export const MARKET_PACKAGE = '@coeasy/dsh-plugin-marketplace'
 
@@ -78,6 +79,26 @@ function pnpmPath(): string {
   return [...dirs, process.env.PATH ?? ''].filter(Boolean).join(sep)
 }
 
+/** Resolve a simple PATH command without turning user input into shell text. */
+function resolveWindowsLauncher(command: string): string | undefined {
+  if (process.platform !== 'win32') return command
+  if (/[\\/]/u.test(command) || !/^[A-Za-z0-9._-]+$/u.test(command)) return undefined
+  const where = process.env.SystemRoot
+    ? join(process.env.SystemRoot, 'System32', 'where.exe')
+    : 'where.exe'
+  const result = spawnSync(where, [command], {
+    encoding: 'utf8',
+    shell: false,
+    windowsHide: true,
+    timeout: 5_000,
+  })
+  if (result.status !== 0) return undefined
+  return String(result.stdout ?? '')
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .find((line) => /^[A-Za-z]:[\\/]/u.test(line))
+}
+
 export interface BootstrapResult {
   ok: boolean
   output: string
@@ -86,7 +107,8 @@ export interface BootstrapResult {
 /**
  * Install the marketplace using the official dsh CLI that the client is
  * launching, from the locally bundled marketplace path. dshCommand may be a
- * .cmd/.exe launcher, so on Windows it is executed via `cmd /c`.
+ * .cmd launcher. Absolute launchers are resolved to `node + bin.js`, so no
+ * user-controlled path is ever interpolated into a shell command.
  *
  * The spawned CLI MUST receive the same DSH_HOME the client runs, otherwise
  * `dsh plugin --profile web add` lands in the global ~/.dsh and the running
@@ -99,21 +121,36 @@ export function installMarket(
 ): Promise<BootstrapResult> {
   return new Promise((resolve) => {
     const args = ['plugin', '--profile', 'web', 'add', `file:${marketPath}`]
-    const win = process.platform === 'win32'
     const env = { ...process.env, CI: 'true', PATH: pnpmPath(), DSH_HOME: dshHome }
-    const child = win
-      ? spawn('cmd.exe', ['/d', '/s', '/c', `"${dshCommand}" ${args.join(' ')}`], {
+    const resolvedCommand = resolveWindowsLauncher(dshCommand)
+    const direct = resolveDirectSpawn(resolvedCommand ?? dshCommand, {
+      exists: existsSync,
+      read: (path) => readFileSync(path, 'utf8'),
+    })
+    if (process.platform === 'win32' && !direct) {
+      resolve({
+        ok: false,
+        output: `unsafe or unresolved Windows dsh launcher: ${dshCommand}`,
+      })
+      return
+    }
+    const child = direct
+      ? spawn(direct.exec, [...direct.prefixArgs, ...args], {
           env,
           windowsHide: true,
+          shell: false,
         })
-      : spawn(dshCommand, args, { env })
+      : spawn(resolvedCommand ?? dshCommand, args, { env, windowsHide: true, shell: false })
     track(child)
     let out = ''
+    const append = (chunk: Buffer): void => {
+      out = `${out}${chunk.toString()}`.slice(-64 * 1024)
+    }
     child.stdout?.on('data', (c: Buffer) => {
-      out += c.toString()
+      append(c)
     })
     child.stderr?.on('data', (c: Buffer) => {
-      out += c.toString()
+      append(c)
     })
     child.on('error', (error) => resolve({ ok: false, output: String(error) }))
     child.on('close', (code) => resolve({ ok: code === 0, output: out.slice(-2000) }))

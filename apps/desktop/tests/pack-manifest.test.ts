@@ -61,6 +61,7 @@ describe('electron-builder manifest', () => {
     assert.match(main, /sanitizeBundledSpawnEnv/)
     assert.match(main, /resolveEngineLaunch/)
     assert.match(main, /ipcMain\.handle\('mobile:open-pairing'/)
+    assert.match(main, /ipcMain\.handle\('market:action'/)
     assert.match(main, /ipcMain\.handle\(\s*'desktop:complete-setup'/)
     assert.match(main, /'desktop:should-skip-onboarding'/)
     assert.match(main, /'desktop:setup-defaults'/)
@@ -77,6 +78,20 @@ describe('electron-builder manifest', () => {
     assert.match(chrome, /titleBarStyle: 'hidden'/)
     assert.match(preload, /contextBridge\.exposeInMainWorld\('dshDesktop'/)
     assert.match(preload, /ipcRenderer\.invoke\('mobile:open-pairing'\)/)
+    const onlineYml = readFileSync(join(desktop, 'electron-builder-online.yml'), 'utf8')
+    assert.match(onlineYml, /extends: \.\/electron-builder\.yml/)
+    assert.match(onlineYml, /from: runtime-system\.json/)
+    assert.match(onlineYml, /my-dsh-online-Setup-/)
+    assert.match(onlineYml, /extraResources: \[\]/)
+    assert.doesNotMatch(onlineYml, /runtime\/payload/)
+    const dualPack = readFileSync(
+      join(desktop, '..', '..', 'scripts', 'pack-desktop-editions.mjs'),
+      'utf8',
+    )
+    assert.match(dualPack, /\['bundled', 'system'\]/)
+    const updateService = readFileSync(join(desktop, 'src', 'app-update-service.ts'), 'utf8')
+    assert.match(updateService, /checkForAppUpdates/)
+    assert.match(main, /checkForAppUpdates/)
     const bridge = readFileSync(join(desktop, 'src', 'mobile', 'lan-mobile-bridge.ts'), 'utf8')
     assert.match(bridge, /from 'qrcode\/lib\/browser\.js'/)
   })

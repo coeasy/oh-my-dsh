@@ -11,9 +11,13 @@ describe('vscode runtime-mode', () => {
     )
   })
 
-  it('defaults production VSIX to download and F5 to local', () => {
-    assert.equal(resolveVscodeRuntimeMode({ production: true }), 'download')
+  it('defaults production VSIX and F5 to the local runtime', () => {
+    assert.equal(resolveVscodeRuntimeMode({ production: true }), 'local')
     assert.equal(resolveVscodeRuntimeMode({ production: false }), 'local')
+    assert.equal(
+      resolveVscodeEngineLaunch({ production: true, repoRoot: '/workspace' }).mode,
+      'local',
+    )
   })
 
   it('F5 prefers the repo clone over PATH dsh', () => {

@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('dshDesktop', {
   completeSetup: (payload: { workspace: string; apiKey: string }) =>
     ipcRenderer.invoke('desktop:complete-setup', payload),
   shouldSkipOnboarding: () => ipcRenderer.invoke('desktop:should-skip-onboarding'),
+  marketAction: (request: { kind: string; payload: Record<string, unknown> }) =>
+    ipcRenderer.invoke('market:action', request),
 })
 
 const MOBILE_BUTTON_ID = 'dsh-desktop-mobile-button'

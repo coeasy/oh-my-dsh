@@ -13,7 +13,7 @@ Settings:
 - `dsh.runtime`: `local` | `download`
 - `dsh.downloadUrl`: D3 下载地址（可空，回落到 `DSH_RUNTIME_URL`）
 
-安装后的 VSIX 默认 `dsh.runtime=download`（未改用户设置时）。F5 开发优先用仓库克隆，而不是 PATH 上可能过期的 `dsh`。
+安装后的 VSIX 默认 `dsh.runtime=local`。只有显式选择 `download` 并配置可信下载源时才会下载运行时；F5 开发仍优先使用仓库克隆。
 
 ```powershell
 pnpm pack:vscode

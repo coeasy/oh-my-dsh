@@ -1,6 +1,9 @@
 # DeepSeek Harness Desktop (unofficial)
 
-Electron window around `dsh web`. Packaged builds ship Node, the flattened Harness, and the Cordis plugin. A third-party PC does not install Node or `dsh`.
+Electron window around `dsh web`. Release builds provide two editions:
+
+- Offline (default): ships Node, the flattened Harness, and the Cordis plugin. A third-party PC does not install Node or `dsh`.
+- Online/slim: omits the engine payload and uses a current `dsh` from PATH, or the absolute launcher in `DSH_BIN`.
 
 This client is unofficial and is not published by DeepSeek.
 
@@ -10,6 +13,7 @@ pnpm --dir apps/desktop start
 ```
 
 - Packaged: extraResources `runtime/` launcher. Ambient `DSH_RUNTIME=local` is ignored so PATH `dsh` cannot hijack the installer.
+- Packaged online/slim: `runtime.json` explicitly selects the system CLI; no `runtime/node` or `runtime/harness` is allowed in the artifact.
 - Unpackaged: `runtime/stage` if present, else gitignored `deepseek-harness/` via `runtime/dev/dsh.cmd`. `DSH_BIN` still forces a specific binary.
 - First run asks for a workspace folder and an API key (stored under `%APPDATA%\dsh-client-desktop\harness\.env`). File → Open Workspace changes the folder later.
 - You can also put `DEEPSEEK_API_KEY` in `.env` next to the file you double-clicked.
@@ -21,11 +25,13 @@ pnpm --dir apps/desktop start
 
 ```powershell
 pnpm pack:desktop
+pnpm pack:desktop:online
+pnpm pack:desktop:dual
 ```
 
-Artifacts in `apps/desktop/dist-release/`:
+Artifacts in `apps/desktop/dist-release/` (the slim variants include `online` in the filename):
 
-- `DeepSeek-Harness-Setup-*.exe` — NSIS
-- `DeepSeek-Harness-*-portable.exe` — one-file; unpacks once into a stable folder, then starts immediately
+- `my-dsh-Setup-*.exe` / `my-dsh-online-Setup-*.exe` — NSIS
+- `my-dsh-*-portable.exe` / `my-dsh-online-*-portable.exe` — one-file portable builds
 - `*.zip` — folder copy (also good for USB)
 - `SHA256SUMS.txt`

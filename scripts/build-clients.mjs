@@ -57,15 +57,21 @@ const resolved = await resolveEngineRef({
   explicitRef: process.env.DSH_ENGINE_REF,
   lock: loadEngineLock(root),
 })
-console.log(`build-clients: engine ${resolved.repository}#${resolved.ref} (${resolved.channel} via ${resolved.source})`)
+console.log(
+  `build-clients: engine ${resolved.repository}#${resolved.ref} (${resolved.channel} via ${resolved.source})`,
+)
 if (resolved.fallback && /GitHub 403/u.test(String(resolved.fallback)) && !githubAuthToken()) {
-  console.warn('build-clients: hint: set GITHUB_TOKEN or GH_TOKEN to read GitHub Releases; currently falling back after 403')
+  console.warn(
+    'build-clients: hint: set GITHUB_TOKEN or GH_TOKEN to read GitHub Releases; currently falling back after 403',
+  )
 }
 console.log(`build-clients: scenarios ${scenarios.join(',')}`)
 
 run('fetch-engine.mjs', {
   DSH_ENGINE_REF: resolved.ref,
-  ...(process.env.DSH_FETCH_ENGINE_FORCE ? { DSH_FETCH_ENGINE_FORCE: process.env.DSH_FETCH_ENGINE_FORCE } : {}),
+  ...(process.env.DSH_FETCH_ENGINE_FORCE
+    ? { DSH_FETCH_ENGINE_FORCE: process.env.DSH_FETCH_ENGINE_FORCE }
+    : {}),
 })
 
 if (process.env.DSH_SKIP_ENGINE_BUILD !== '1') {
@@ -78,7 +84,7 @@ const wantVscode = scenarios.includes('vscode')
 const desktopIds = scenarios.filter((name) => name !== 'vscode')
 if (wantVscode) runPnpm(['pack:vscode'])
 if (desktopIds.length > 0) {
-  runPnpm(['pack:desktop'], { DSH_ELECTRON_TARGETS: desktopIds.join(',') })
+  run('pack-desktop-editions.mjs', { DSH_ELECTRON_TARGETS: desktopIds.join(',') })
 }
 
 mkdirSync(join(root, 'runtime'), { recursive: true })

@@ -5,7 +5,9 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -21,6 +23,30 @@ import { defaultCacheDir, resolveRuntime, resolveRuntimeMode } from './resolve-r
 import { ensureDownloadedRuntime } from './download.ts'
 import { shutdownLadder, killProcessTree, killExecutable, engineStopPlan } from './shutdown.ts'
 import type { ChildLike, LaunchOptions, RunningHost } from './types.ts'
+
+const DEFAULT_OUTPUT_TAIL_BYTES = 256 * 1024
+const DEFAULT_LOG_BYTES = 5 * 1024 * 1024
+const LOG_BACKUPS = 3
+
+export function appendOutputTail(current: string, next: string, maxBytes: number): string {
+  const combined = `${current}${next}`
+  if (Buffer.byteLength(combined, 'utf8') <= maxBytes) return combined
+  return Buffer.from(combined, 'utf8').subarray(-maxBytes).toString('utf8')
+}
+
+export function rotateLogFile(path: string, maxBytes = DEFAULT_LOG_BYTES): void {
+  try {
+    if (!existsSync(path) || statSync(path).size < maxBytes) return
+    rmSync(`${path}.${LOG_BACKUPS}`, { force: true })
+    for (let index = LOG_BACKUPS - 1; index >= 1; index -= 1) {
+      const from = `${path}.${index}`
+      if (existsSync(from)) renameSync(from, `${path}.${index + 1}`)
+    }
+    renameSync(path, `${path}.1`)
+  } catch {
+    // Logging must never block Harness startup.
+  }
+}
 
 function defaultPluginPath(): string {
   const compiled = fileURLToPath(
@@ -154,13 +180,15 @@ export async function launchHost(options: LaunchOptions): Promise<RunningHost> {
         detached: false,
       })
   const stdoutBuffer = { text: '' }
+  const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_OUTPUT_TAIL_BYTES
   const logStream = options.logPath
     ? (mkdirSync(dirname(options.logPath), { recursive: true }),
+      rotateLogFile(options.logPath, options.maxLogBytes),
       createWriteStream(options.logPath, { flags: 'a' }))
     : undefined
   const appendLog = (source: 'stdout' | 'stderr', chunk: Buffer) => {
     const text = chunk.toString('utf8')
-    stdoutBuffer.text += text
+    stdoutBuffer.text = appendOutputTail(stdoutBuffer.text, text, maxOutputBytes)
     logStream?.write(`[${source}] ${text}`)
   }
   child.stdout?.on('data', (buf: Buffer) => appendLog('stdout', buf))
