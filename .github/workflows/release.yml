@@ -79,41 +79,50 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          # A manual run has a branch ref (usually `main`), not a release tag.
-          # Give it a unique tag so stale draft assets cannot collide with a
-          # later verification run; tag-triggered releases keep their tag.
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_number) || github.ref_name }}
-          name: my-dsh ${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_number) || github.ref_name }}
-          # Auto-generated notes from merged PRs/commits; maintainers may add a
-          # hand-written body first by editing the release before publishing, or
-          # pre-fill from docs/release-template.md.
-          generate_release_notes: true
-          draft: true
-          prerelease: false
-          # Every manual run uses a fresh tag, so concurrent asset metadata
-          # updates are unnecessary and can race inside the release action.
-          overwrite_files: false
-          # download-artifact also restores the unpacked Electron app trees.
-          # Upload only distributable files; dist/** would publish app.asar,
-          # Chromium internals, and thousands of implementation files.
-          files: |
-            dist/**/my-dsh-Setup-*.exe
-            dist/**/my-dsh-*-portable.exe
-            dist/**/my-dsh-*-win.zip
-            dist/**/my-dsh-*-mac.zip
-            dist/**/my-dsh-*-mac.dmg
-            dist/**/my-dsh-*-linux.zip
-            dist/**/my-dsh-*-linux.AppImage
-            dist/**/my-dsh-*.blockmap
-            dist/**/my-dsh-online-Setup-*.exe
-            dist/**/my-dsh-online-*-portable.exe
-            dist/**/my-dsh-online-*-win.zip
-            dist/**/my-dsh-online-*-mac.zip
-            dist/**/my-dsh-online-*-mac.dmg
-            dist/**/my-dsh-online-*-linux.zip
-            dist/**/my-dsh-online-*-linux.AppImage
-            dist/**/my-dsh-online-*.blockmap
-            dist/**/*.vsix
-            dist/**/SHA256SUMS.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            release_tag="manual-${{ github.run_number }}"
+          else
+            release_tag="${{ github.ref_name }}"
+          fi
+
+          release_name="my-dsh ${release_tag}"
+          mapfile -t assets < <(
+            find dist -type f \( \
+              -name 'my-dsh-Setup-*.exe' -o \
+              -name 'my-dsh-*-portable.exe' -o \
+              -name 'my-dsh-*-win.zip' -o \
+              -name 'my-dsh-*-mac.zip' -o \
+              -name 'my-dsh-*-mac.dmg' -o \
+              -name 'my-dsh-*-linux.zip' -o \
+              -name 'my-dsh-*-linux.AppImage' -o \
+              -name 'my-dsh-*.blockmap' -o \
+              -name 'my-dsh-online-Setup-*.exe' -o \
+              -name 'my-dsh-online-*-portable.exe' -o \
+              -name 'my-dsh-online-*-win.zip' -o \
+              -name 'my-dsh-online-*-mac.zip' -o \
+              -name 'my-dsh-online-*-mac.dmg' -o \
+              -name 'my-dsh-online-*-linux.zip' -o \
+              -name 'my-dsh-online-*-linux.AppImage' -o \
+              -name 'my-dsh-online-*.blockmap' -o \
+              -name '*.vsix' -o \
+              -name 'SHA256SUMS.txt' \
+            \) -print
+          )
+          if (( ${#assets[@]} == 0 )); then
+            echo 'No release assets were produced' >&2
+            exit 1
+          fi
+
+          # gh uploads the completed asset set through one release command,
+          # avoiding softprops' concurrent asset-metadata update race.
+          gh release create "$release_tag" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$release_name" \
+            --generate-notes \
+            --draft
