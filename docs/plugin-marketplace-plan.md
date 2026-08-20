@@ -69,7 +69,7 @@ DSH 采用 Cordis 微内核、"一切皆插件"架构，但官方尚无插件市
 | 插件 | `plugins/embedded-client` 极简 Cordis bundle（esbuild 单文件），仅 loopback 锁定 + ready 文件 |
 | 桌面端 | Electron，主界面加载 dsh web SPA；壳层：托盘、设置、窗口 chrome、手机桥、引擎更新 |
 | VS Code | Webview 加载 loopback URL；命令 `dsh.open` / `dsh.stop` |
-| 内核引用 | 不 fork 不 vendoring，gitignored 克隆，`engine.lock.json` 钉死 `dsh-v0.1.0-rc.7` |
+| 内核引用 | 不 fork 不 vendoring，gitignored 克隆，`engine.lock.json` 钉死 `dsh-v0.1.0-rc.8` |
 
 关键洞察：两端主界面是**同一个 dsh web SPA**，市场做成 dsh web 设置页插件可一次覆盖两端。
 
@@ -311,7 +311,7 @@ apps/desktop、apps/vscode ──仅入口跳转──► 市场页
 #### G5. 依赖解析与版本门控
 
 **问题**：市场包的 peerDeps（`@deepseek-ai/cordis`、`@deepseek-ai/dsh-settings` 等）在用户 profile 中由 dsh-base 层栈提供；版本不匹配（用户引擎 rc.6 vs 市场 rc.7 编译）会缺原语。
-**方案**：peerDeps 宽松声明（`^0.1.0-rc.7`）；启动时能力探测（缺原语自我禁用 + 控制台说明，dsh-market 同款策略）；oh-my-dsh 引擎钉死 rc.7 与市场开发基线一致。
+**方案**：peerDeps 宽松声明（`^0.1.0-rc.8`）；启动时能力探测（缺原语自我禁用 + 控制台说明，dsh-market 同款策略）；oh-my-dsh 引擎钉死 rc.8 与市场开发基线一致。
 
 #### G6. 壳层入口与市场页跳转（辅线）
 
@@ -351,7 +351,7 @@ apps/desktop、apps/vscode ──仅入口跳转──► 市场页
 |---|---|---|
 | G1 官方通道在打包 runtime 内不可用（pnpm 缺失/受限） | 高 | Phase 0 硬门槛；兜底：内置 pnpm（Phase 3）→ 提示外部终端执行；不破官方兼容红线 |
 | G2 client bundle 构建形态错误（非懒 CJS 工厂包） | 高 | Phase 0 硬门槛；对齐 dsh-market 的 tsdown 管线；不影响 embedded-client 现有流程 |
-| G3 设置页插入原语缺失/版本过旧 | 中 | 能力探测 + 自我禁用（dsh-market 模式）；oh-my-dsh 引擎钉 rc.7 同基线 |
+| G3 设置页插入原语缺失/版本过旧 | 中 | 能力探测 + 自我禁用（dsh-market 模式）；oh-my-dsh 引擎钉 rc.8 同基线 |
 | G6 SPA 无设置深链，壳层入口降级 | 低 | 主用深链，备选首页+提示，增强方案 host 接口导航 |
 | pnpm 自动安装失败（网络/权限） | 中 | 失败时展示手动指引；安装包形态可考虑预装（Phase 3 评估）|
 | GitHub API 限流 | 中 | 静态快照优先 + 缓存 + 可选 token |

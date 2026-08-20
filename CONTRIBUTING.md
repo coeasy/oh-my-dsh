@@ -2,7 +2,7 @@
 
 This is an unofficial out-of-tree client pack. Do not edit `deepseek-harness/` even when a local clone exists; treat it as read-only pack input.
 
-Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [docs/development.md](docs/development.md).
+Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and the build instructions in this file.
 
 ## Setup
 
@@ -15,8 +15,8 @@ pnpm compile
 Fetch DeepSeek Harness when you need to pack, or use the one-click path in [docs/one-click-clients.md](docs/one-click-clients.md):
 
 ```powershell
-.\build-clients.cmd stable
-.\install-clients.cmd
+tools\build-clients.cmd stable
+tools\install-clients.cmd
 ```
 
 ## Checks

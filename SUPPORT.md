@@ -6,7 +6,7 @@ or endorsed by DeepSeek.
 ## Product questions
 
 - How to build and install: [README.md](README.md) and [docs/one-click-clients.md](docs/one-click-clients.md)
-- How to develop: [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md)
+- How to develop: [CONTRIBUTING.md](CONTRIBUTING.md)
 - How to publish a GitHub repository: [docs/publishing.md](docs/publishing.md)
 
 ## Bugs and features

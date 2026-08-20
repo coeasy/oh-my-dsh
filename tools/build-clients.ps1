@@ -11,7 +11,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-Set-Location -LiteralPath $PSScriptRoot
+Set-Location -LiteralPath (Join-Path $PSScriptRoot '..')
 $env:CI = '1'
 
 function Assert-Command([string]$Name, [string]$Hint) {

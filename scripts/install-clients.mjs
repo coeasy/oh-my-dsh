@@ -41,7 +41,7 @@ const hosts = ['cursor', 'code'].filter((name) => which(name))
 let failed = false
 
 if (!vsix) {
-  console.warn('install-clients: no VSIX under apps/vscode — run pnpm pack:vscode or .\\build-clients.cmd first')
+  console.warn('install-clients: no VSIX under apps/vscode — run pnpm pack:vscode or tools\\build-clients.cmd first')
 } else if (hosts.length === 0) {
   console.warn(`install-clients: VSIX ready at ${vsix}`)
   console.warn('install-clients: neither `cursor` nor `code` is on PATH; install the VSIX from the editor UI')
@@ -95,7 +95,7 @@ if (setup && process.env.DSH_INSTALL_DESKTOP === '1') {
 }
 
 if (!vsix && !setup && !portable && !zip && !dmg && !appimage) {
-  throw new Error('install-clients: no packed artifacts found. Run ./build-clients.sh or .\\build-clients.cmd first.')
+  throw new Error('install-clients: no packed artifacts found. Run ./tools/build-clients.sh or tools\\build-clients.cmd first.')
 }
 
 if (failed) process.exit(1)

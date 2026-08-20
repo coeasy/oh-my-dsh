@@ -13,7 +13,7 @@
 ```json
 {
   "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
-  "ref": "dsh-v0.1.0-rc.7",
+  "ref": "dsh-v0.1.0-rc.8",
   "pinnedCommit": "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca"
 }
 ```
@@ -37,16 +37,15 @@ pnpm fetch:engine
 
 | 操作 | Windows | macOS / Linux |
 |---|---|---|
-| **本地一键构建（推荐）** | `build-local.cmd` | `./build-local.sh` |
-| 构建（stable） | `build-clients.cmd` | `./build-clients.sh` |
-| 构建（latest release，含 rc） | `build-clients.cmd latest` | `./build-clients.sh latest` |
-| 构建（lock 钉死） | `build-clients.cmd lock` | `./build-clients.sh lock` |
-| 构建（钉死分支/tag） | `build-clients.cmd master` | `./build-clients.sh master` |
-| 安装 VSIX 到 Cursor / VS Code | `install-clients.cmd` | `./install-clients.sh` |
+| 构建（stable） | `tools\build-clients.cmd` | `./tools/build-clients.sh` |
+| 构建（latest release，含 rc） | `tools\build-clients.cmd latest` | `./tools/build-clients.sh latest` |
+| 构建（lock 钉死） | `tools\build-clients.cmd lock` | `./tools/build-clients.sh lock` |
+| 构建（钉死分支/tag） | `tools\build-clients.cmd master` | `./tools/build-clients.sh master` |
+| 安装 VSIX 到 Cursor / VS Code | `tools\install-clients.cmd` | `./tools/install-clients.sh` |
 
 `$env:DSH_INSTALL = '1'` 可在打包结束后直接安装 VSIX。`$env:DSH_INSTALL_DESKTOP = '1'` 会再启动 NSIS。
 
-`build-local.*` 是慢速网络环境下的推荐捷径：它会预配置 GitHub 克隆代理（`ghfast.top`）、npm 镜像源（`npmmirror`）与 Electron 镜像，默认构建钉死的 `lock` 通道。可通过 `DSH_GH_PROXY=0`、`DSH_REGISTRY`、`DSH_ELECTRON_MIRROR` 关闭或覆盖。
+如需可复现的本地构建，请使用钉死通道：`tools\build-clients.cmd lock` 或 `./tools/build-clients.sh lock`。包管理器和 Electron 下载源统一遵循标准 pnpm 配置。
 
 等价 pnpm（详见 [docs/one-click-clients.md](docs/one-click-clients.md)）：
 
@@ -86,7 +85,7 @@ GitHub Release 发布后，优先：
 
 ## 开发
 
-见 [docs/development.md](docs/development.md)。架构：[docs/architecture.md](docs/architecture.md)。发布 GitHub 仓库：[docs/publishing.md](docs/publishing.md)。
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。架构：[docs/architecture.md](docs/architecture.md)。发布 GitHub 仓库：[docs/publishing.md](docs/publishing.md)。
 
 ```powershell
 pnpm install

@@ -35,7 +35,7 @@ apps/desktop ─┘                                          │
 
 ### 关键工程特性（已实现）
 
-- **一键构建分发**：`build-clients.cmd` / `.ps1` / `.sh`，Windows→NSIS/portable/zip，macOS→dmg，Linux→AppImage
+- **一键构建分发**：`tools/build-clients.cmd` / `.ps1` / `.sh`，Windows→NSIS/portable/zip，macOS→dmg，Linux→AppImage
 - **可搬迁运行时**：打包 `dsh.cmd` 只用 `%~dp0` 相对路径，直接 `node + bin.js` 启动，无 `cmd.exe` 控制台残留
 - **引擎获取链路**：GitHub stable → latest release → `git ls-remote --heads` → `engine.lock.json` 兜底
 - **进程生命周期管理**：Windows `taskkill /T /F` 收割整棵进程树；POSIX stdin EOF → SIGTERM → SIGKILL

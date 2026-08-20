@@ -11,7 +11,7 @@ This repo does **not** vendor or fork the [DeepSeek Harness](https://github.com/
 ```json
 {
   "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
-  "ref": "dsh-v0.1.0-rc.7",
+  "ref": "dsh-v0.1.0-rc.8",
   "pinnedCommit": "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca"
 }
 ```
@@ -35,16 +35,15 @@ Each OS packs its own native desktop artifacts (Windows exe, macOS dmg, Linux Ap
 
 | Action | Windows | macOS / Linux |
 |---|---|---|
-| **Local one-click build (recommended)** | `build-local.cmd` | `./build-local.sh` |
-| Build (stable) | `build-clients.cmd` | `./build-clients.sh` |
-| Build (latest release, incl. rc) | `build-clients.cmd latest` | `./build-clients.sh latest` |
-| Build (pinned lock) | `build-clients.cmd lock` | `./build-clients.sh lock` |
-| Build (pinned branch / tag) | `build-clients.cmd master` | `./build-clients.sh master` |
-| Install VSIX into Cursor / VS Code | `install-clients.cmd` | `./install-clients.sh` |
+| Build (stable) | `tools\build-clients.cmd` | `./tools/build-clients.sh` |
+| Build (latest release, incl. rc) | `tools\build-clients.cmd latest` | `./tools/build-clients.sh latest` |
+| Build (pinned lock) | `tools\build-clients.cmd lock` | `./tools/build-clients.sh lock` |
+| Build (pinned branch / tag) | `tools\build-clients.cmd master` | `./tools/build-clients.sh master` |
+| Install VSIX into Cursor / VS Code | `tools\install-clients.cmd` | `./tools/install-clients.sh` |
 
 `$env:DSH_INSTALL = '1'` installs the packed VSIX right after packing; `$env:DSH_INSTALL_DESKTOP = '1'` also launches the NSIS installer.
 
-`build-local.*` is the recommended shortcut on slow networks: it pre-configures the GitHub clone proxy (`ghfast.top`), the npm registry (`npmmirror`) and the Electron mirror, then builds the pinned `lock` channel by default. Disable/override with `DSH_GH_PROXY=0`, `DSH_REGISTRY`, `DSH_ELECTRON_MIRROR`.
+For reproducible local builds, use the pinned channel: `tools\build-clients.cmd lock` or `./tools/build-clients.sh lock`. Package-manager and Electron download sources remain controlled by the standard pnpm configuration.
 
 Equivalent pnpm commands (see [docs/one-click-clients.md](docs/one-click-clients.md)):
 
@@ -84,7 +83,7 @@ Windows x64 only. Unsigned builds trigger SmartScreen until `CSC_LINK` is config
 
 ## Develop
 
-See [docs/development.md](docs/development.md). Architecture: [docs/architecture.md](docs/architecture.md). Publishing a GitHub repo: [docs/publishing.md](docs/publishing.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Architecture: [docs/architecture.md](docs/architecture.md). Publishing a GitHub repo: [docs/publishing.md](docs/publishing.md).
 
 ```powershell
 pnpm install
