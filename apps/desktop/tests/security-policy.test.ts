@@ -4,7 +4,9 @@ import { canGrantWindowPermission, isTrustedAppUrl } from '../src/security-polic
 
 describe('navigation trust boundary', () => {
   it('only trusts the launcher and loopback HTTP pages', () => {
-    assert.equal(isTrustedAppUrl('file:///app/index.html'), true)
+    assert.equal(isTrustedAppUrl('file:///app/index.html'), false)
+    assert.equal(isTrustedAppUrl('file:///app/index.html', ['/app']), true)
+    assert.equal(isTrustedAppUrl('file:///app/../etc/passwd', ['/app']), false)
     assert.equal(isTrustedAppUrl('http://127.0.0.1:43127'), true)
     assert.equal(isTrustedAppUrl('http://localhost:43127'), true)
     assert.equal(isTrustedAppUrl('https://127.0.0.1:43127'), false)

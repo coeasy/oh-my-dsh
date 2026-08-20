@@ -1,4 +1,12 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -132,6 +140,7 @@ function migrateLegacyUserData(): void {
     mkdirSync(dirname(dest), { recursive: true })
     try {
       cpSync(src, dest, { recursive: true, force: true })
+      if (relative.endsWith('.env')) chmodSync(dest, 0o600)
     } catch (error) {
       console.error(`[my-dsh] migration skipped ${relative}`, error)
     }
@@ -214,6 +223,7 @@ function persistApiKey(apiKey: string): void {
   const dest = join(dshHome, '.env')
   const previous = existsSync(dest) ? readFileSync(dest, 'utf8') : ''
   writeFileSync(dest, upsertEnvKey(previous, 'DEEPSEEK_API_KEY', trimmed), 'utf8')
+  chmodSync(dest, 0o600)
 }
 
 function publishSnapshot(next: RuntimeSnapshot): void {
@@ -350,7 +360,7 @@ function createWindow(): BrowserWindow {
     void window.webContents.insertCSS(FILL_VIEWPORT_CSS)
     void window.webContents.insertCSS(NO_DRAG_INTERACTIVES_CSS)
   })
-  secureWindow(window)
+  secureWindow(window, [desktopResourcePath('splash.html'), desktopResourcePath('setup.html')])
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = undefined
   })
@@ -725,7 +735,27 @@ async function checkForEngineUpdate(interactive: boolean): Promise<string> {
     return msg
   }
   const manifestUrl = process.env.DSH_ENGINE_UPDATE_URL
-  const manifestRaw = manifestUrl ? await (await net.fetch(manifestUrl)).text() : ''
+  let manifestRaw = ''
+  if (manifestUrl) {
+    let parsedManifestUrl: URL
+    try {
+      parsedManifestUrl = new URL(manifestUrl)
+    } catch {
+      parsedManifestUrl = new URL('about:blank')
+    }
+    if (parsedManifestUrl.protocol !== 'https:') {
+      const msg = isChinese
+        ? '引擎更新清单必须使用 HTTPS。'
+        : 'The engine update manifest must use HTTPS.'
+      if (interactive)
+        await dialog.showMessageBox({ type: 'warning', message: msg, buttons: ['OK'] })
+      return msg
+    }
+    const manifestResponse = await net.fetch(parsedManifestUrl.href)
+    if (!manifestResponse.ok)
+      throw new Error(`engine update manifest: HTTP ${manifestResponse.status}`)
+    manifestRaw = await manifestResponse.text()
+  }
   const manifest = parseEngineUpdateManifest(manifestRaw)
   if (!manifest) {
     const msg = isChinese
@@ -743,8 +773,8 @@ async function checkForEngineUpdate(interactive: boolean): Promise<string> {
   })
   const dir = engineVersionDir(cacheRoot, manifest.version)
   const msg = isChinese
-    ? `引擎 ${manifest.version} 已下载并校验，将在下次启动使用：${dir}`
-    : `Engine ${manifest.version} downloaded and verified; will be used on next launch: ${dir}`
+    ? `引擎 ${manifest.version} 已下载并校验，等待后续激活：${dir}`
+    : `Engine ${manifest.version} downloaded and verified; activation is pending: ${dir}`
   if (interactive) await dialog.showMessageBox({ type: 'info', message: msg, buttons: ['OK'] })
   return msg
 }

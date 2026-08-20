@@ -9,12 +9,32 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
+import { isGithubRepo, isSafeProfileName } from './registry.ts'
 
 export interface RunResult {
   code: number
   stdout: string
   stderr: string
 }
+
+const SAFE_NPM_SPEC = /^(?:@[a-z0-9][a-z0-9._-]{0,63}\/)?[a-z0-9][a-z0-9._-]{0,213}$/u
+
+/** Package specs accepted by marketplace routes and backup restore. */
+export function isNpmSpec(spec: string): boolean {
+  return SAFE_NPM_SPEC.test(String(spec || ''))
+}
+
+export function isGithubSpec(spec: string): boolean {
+  const raw = String(spec || '')
+  return raw.startsWith('github:') && isGithubRepo(raw.slice('github:'.length))
+}
+
+export function isInstallSpec(spec: string): boolean {
+  return isNpmSpec(spec) || isGithubSpec(spec)
+}
+
+const MAX_COMMAND_OUTPUT = 64 * 1024
+const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
 
 /**
  * The real Node executable for spawning children. process.argv0 carries the
@@ -82,8 +102,11 @@ export function childEnv(home?: string): NodeJS.ProcessEnv {
 export function runPluginCommand(
   profile: string,
   args: string[],
-  opts: { home?: string } = {},
+  opts: { home?: string; timeoutMs?: number } = {},
 ): Promise<RunResult> {
+  if (!isSafeProfileName(profile)) {
+    return Promise.resolve({ code: 400, stdout: '', stderr: 'invalid profile name' })
+  }
   const entry = dshCliEntry()
   if (entry === null) {
     return Promise.resolve({
@@ -99,14 +122,34 @@ export function runPluginCommand(
     })
     let stdout = ''
     let stderr = ''
+    let settled = false
+    let timedOut = false
+    const append = (current: string, chunk: Buffer): string =>
+      `${current}${chunk.toString()}`.slice(-MAX_COMMAND_OUTPUT)
+    const finish = (result: RunResult): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(result)
+    }
     child.stdout?.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString()
+      stdout = append(stdout, chunk)
     })
     child.stderr?.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString()
+      stderr = append(stderr, chunk)
     })
-    child.on('error', (error) => resolve({ code: 1, stdout, stderr: `${stderr}${String(error)}` }))
-    child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }))
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill()
+    }, opts.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS)
+    child.on('error', (error) => finish({ code: 1, stdout, stderr: `${stderr}${String(error)}` }))
+    child.on('close', (code) =>
+      finish({
+        code: timedOut ? 124 : (code ?? 1),
+        stdout,
+        stderr: timedOut ? `${stderr}command timed out\n` : stderr,
+      }),
+    )
   })
 }
 

@@ -14,29 +14,38 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
+import { assertAlignedVersions } from './product-version.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-const version = pkg.version
+const version = assertAlignedVersions(root, pkg.version)
 const tag = `v${version}`
 
-const run = (cmd, args) =>
-  execFileSync(cmd, args, { stdio: 'inherit', cwd: root })
+const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'inherit', cwd: root })
 
 // Changesets/actions/checkout do not always configure a committer identity.
 run('git', ['config', 'user.name', 'github-actions[bot]'])
-run('git', [
-  'config',
-  'user.email',
-  '41898282+github-actions[bot]@users.noreply.github.com',
-])
+run('git', ['config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'])
 
-// Commit any leftover version bumps (e.g. lockfile) if present.
-run('git', ['add', '-A'])
+// Commit tracked version bumps (package manifests, changelogs, lockfile) if
+// present. Do not stage unrelated untracked files from the runner workspace.
+run('git', ['add', '--update'])
 try {
   execFileSync('git', ['diff', '--cached', '--quiet'], { cwd: root })
 } catch {
   run('git', ['commit', '-m', `chore: release ${tag}`])
+}
+
+try {
+  execFileSync('git', ['rev-parse', '--verify', `refs/tags/${tag}`], {
+    cwd: root,
+    stdio: 'ignore',
+  })
+  throw new Error(`release tag already exists: ${tag}`)
+} catch (error) {
+  if (error instanceof Error && error.message.startsWith('release tag already exists:')) {
+    throw error
+  }
 }
 
 run('git', ['tag', '-a', tag, '-m', `Release ${tag}`])

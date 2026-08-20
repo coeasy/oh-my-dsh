@@ -22,7 +22,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { RegistryEntry } from './registry.ts'
-import { dshHomeOf } from './registry.ts'
+import { dshHomeOf, isGithubRepo } from './registry.ts'
 
 export interface CatalogAdapter {
   /** Stable adapter id, used in the `?source=` query and the sources API. */
@@ -72,7 +72,7 @@ function loadBuiltinSnapshot(): RegistryEntry[] {
     const d = JSON.parse(readFileSync(snapshotPath(), 'utf8')) as {
       repos?: RegistryEntry[]
     }
-    return Array.isArray(d.repos) ? d.repos : []
+    return Array.isArray(d.repos) ? d.repos.filter((entry) => isGithubRepo(entry.full_name)) : []
   } catch {
     return []
   }
@@ -117,7 +117,12 @@ const awesomeAdapter: CatalogAdapter = {
       }
       const pls = Array.isArray(d.plugins) ? d.plugins : []
       return pls
-        .filter((p) => typeof p.owner === 'string' && typeof p.name === 'string')
+        .filter(
+          (p) =>
+            typeof p.owner === 'string' &&
+            typeof p.name === 'string' &&
+            isGithubRepo(`${p.owner}/${p.name}`),
+        )
         .map((p) => {
           const desc = p.description as Record<string, string> | undefined
           const category = str(p.category)
@@ -158,21 +163,23 @@ const githubAdapter: CatalogAdapter = {
       if (!res.ok) return []
       const body = (await res.json()) as { items?: Array<Record<string, unknown>> }
       if (!Array.isArray(body.items)) return []
-      return body.items.map((it) => ({
-        name: str(it.name),
-        full_name: str(it.full_name),
-        description: str(it.description).slice(0, 200),
-        url: str(it.html_url) || `https://github.com/${str(it.full_name)}`,
-        stars: num(it.stargazers_count),
-        updated_at: str(it.updated_at),
-        topics: arr(it.topics),
-        license:
-          it.license && typeof it.license === 'object' && 'spdx_id' in it.license
-            ? str((it.license as { spdx_id?: unknown }).spdx_id)
-            : null,
-        pkg_name: null,
-        market_tags: [],
-      }))
+      return body.items
+        .filter((it) => isGithubRepo(str(it.full_name)))
+        .map((it) => ({
+          name: str(it.name),
+          full_name: str(it.full_name),
+          description: str(it.description).slice(0, 200),
+          url: str(it.html_url) || `https://github.com/${str(it.full_name)}`,
+          stars: num(it.stargazers_count),
+          updated_at: str(it.updated_at),
+          topics: arr(it.topics),
+          license:
+            it.license && typeof it.license === 'object' && 'spdx_id' in it.license
+              ? str((it.license as { spdx_id?: unknown }).spdx_id)
+              : null,
+          pkg_name: null,
+          market_tags: [],
+        }))
     } catch {
       return []
     }
@@ -191,7 +198,12 @@ const store1024Adapter: CatalogAdapter = {
       const d = (await fetchJson(url, 30_000)) as { packages?: Array<Record<string, unknown>> }
       const pkgs = Array.isArray(d.packages) ? d.packages : []
       return pkgs
-        .filter((p) => typeof p.owner === 'string' && typeof p.name === 'string')
+        .filter(
+          (p) =>
+            typeof p.owner === 'string' &&
+            typeof p.name === 'string' &&
+            isGithubRepo(`${p.owner}/${str(p.repository) || str(p.name)}`),
+        )
         .map((p) => {
           const desc = p.description as Record<string, string> | undefined
           const category = str(p.category)
@@ -227,7 +239,7 @@ const dshfindAdapter: CatalogAdapter = {
       }
       const items = Array.isArray(d.data) ? d.data : []
       return items
-        .filter((it) => typeof it.full_name === 'string')
+        .filter((it) => typeof it.full_name === 'string' && isGithubRepo(it.full_name))
         .map((it) => ({
           name: str(it.name) || str(it.full_name).split('/').pop() || '',
           full_name: str(it.full_name),

@@ -4,6 +4,7 @@
   "commit": false,
   "fixed": [
     [
+      "my-dsh",
       "@dsh/client-runtime",
       "@dsh/plugin-embedded-client",
       "my-dsh-vscode",
@@ -12,6 +13,10 @@
   ],
   "linked": [],
   "access": "private",
+  "privatePackages": {
+    "version": true,
+    "tag": false
+  },
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": []

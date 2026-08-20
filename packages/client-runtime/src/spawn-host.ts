@@ -103,6 +103,7 @@ export async function launchHost(options: LaunchOptions): Promise<RunningHost> {
           command: await ensureDownloadedRuntime({
             url: options.downloadUrl || env.DSH_RUNTIME_URL || '',
             cacheDir: options.cacheDir || defaultCacheDir(env),
+            openWriteStream: (path: string) => createWriteStream(path),
             onProgress: (stage: 'download-started' | 'downloaded') => {
               if (stage === 'download-started') report?.('downloading')
             },

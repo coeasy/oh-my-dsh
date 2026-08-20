@@ -2,21 +2,36 @@
  * Engine auto-updater (Phase 3.2).
  *
  * The desktop ships a bundled engine in resources/runtime. This module lets the
- * client fetch a newer engine payload into a versioned cache, verify its
- * checksum, activate it for the next launch, and roll back to the previously
- * usable engine when an update is unusable.
+ * client fetch a newer engine payload into a versioned cache and verify its
+ * checksum. `resolveActiveEngineDir` / `rollbackCandidate` only consider an
+ * already extracted, relocatable cache entry; the desktop UI still needs an
+ * explicit extraction/activation step before downloaded payloads are launched.
  *
  * All functions are pure / dependency-injected so they run under `node --test`
  * without network or a real engine.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 
 export interface EngineUpdateManifest {
   version: string
   checksum: string
   url: string
+}
+
+const ENGINE_VERSION = /^\d+\.\d+\.\d+$/u
+
+function isEngineVersion(value: string): boolean {
+  return ENGINE_VERSION.test(value)
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 /** Latest-release lookup from a GitHub API response (focused, defensive). */
@@ -44,14 +59,24 @@ export function parseEngineUpdateManifest(line: string): EngineUpdateManifest | 
     .split(/\s+/u)
   if (parts.length < 3) return undefined
   const [version, checksum, url] = parts
-  if (!/^[0-9a-f]{64}$/u.test(checksum)) return undefined
-  if (!/^https:/u.test(url)) return undefined
-  return { version, checksum, url }
+  if (!isEngineVersion(version)) return undefined
+  if (!/^[0-9a-f]{64}$/iu.test(checksum)) return undefined
+  if (!isHttpsUrl(url)) return undefined
+  return { version, checksum: checksum.toLowerCase(), url }
 }
 
 /** Versioned cache dir for a given engine ref/version. */
 export function engineVersionDir(cacheRoot: string, version: string): string {
-  return resolve(join(cacheRoot, version))
+  if (!isEngineVersion(version)) {
+    throw new Error(`engine-updater: invalid engine version: ${version}`)
+  }
+  const root = resolve(cacheRoot)
+  const dir = resolve(root, version)
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`
+  if (!dir.startsWith(prefix)) {
+    throw new Error(`engine-updater: cache path escapes cacheRoot: ${version}`)
+  }
+  return dir
 }
 
 /** True when a cached engine dir has the expected relocatable entry point. */
@@ -99,7 +124,7 @@ export function resolveActiveEngineDir(
   }
   let best: { dir: string; version: string } | undefined
   for (const entry of entries) {
-    if (!/^\d+(?:\.\d+)*$/u.test(entry)) continue
+    if (!isEngineVersion(entry)) continue
     const dir = engineVersionDir(cacheRoot, entry)
     if (!isUsableEngineDir(dir, exists)) continue
     if (compareVersions(entry, currentBundledVersion) <= 0) continue
@@ -127,6 +152,18 @@ export async function downloadEnginePayload(input: {
   mkdir?: (dir: string) => void
   writeFile?: (path: string, data: Uint8Array) => void
 }): Promise<string> {
+  if (!isHttpsUrl(input.url)) {
+    throw new Error(`engine-updater: refusing non-https URL: ${input.url}`)
+  }
+  if (!isEngineVersion(input.version)) {
+    throw new Error(`engine-updater: invalid engine version: ${input.version}`)
+  }
+  const checksum = String(input.checksum || '')
+    .trim()
+    .toLowerCase()
+  if (!/^[0-9a-f]{64}$/u.test(checksum)) {
+    throw new Error(`engine-updater: invalid sha256: ${input.checksum}`)
+  }
   const dir = engineVersionDir(input.cacheRoot, input.version)
   const zipPath = join(dir, 'engine.zip')
   const mkdir = input.mkdir ?? ((p: string) => mkdirSync(p, { recursive: true }))
@@ -135,14 +172,16 @@ export async function downloadEnginePayload(input: {
   const res = await fetchFn(input.url)
   if (!res.ok) throw new Error(`engine-updater: HTTP ${res.status} fetching ${input.url}`)
   const buf = new Uint8Array(await res.arrayBuffer())
-  const writeFile = input.writeFile ?? ((p: string, d: Uint8Array) => writeFileSync(p, d))
-  writeFile(zipPath, buf)
-  const actual = sha256Hex(zipPath)
-  if (actual !== input.checksum) {
+  const actual = createHash('sha256').update(buf).digest('hex')
+  if (actual !== checksum) {
     throw new Error(
-      `engine-updater: checksum mismatch for ${input.version} (expected ${input.checksum}, got ${actual})`,
+      `engine-updater: checksum mismatch for ${input.version} (expected ${checksum}, got ${actual})`,
     )
   }
+  // Verify before writing: failed downloads never leave an apparently valid
+  // engine.zip that a later activation step could accidentally consume.
+  const writeFile = input.writeFile ?? ((p: string, d: Uint8Array) => writeFileSync(p, d))
+  writeFile(zipPath, buf)
   return dir
 }
 
@@ -164,7 +203,7 @@ export function rollbackCandidate(
   }
   let rollback: { dir: string; version: string } | undefined
   for (const entry of entries) {
-    if (!/^\d+(?:\.\d+)*$/u.test(entry)) continue
+    if (!isEngineVersion(entry)) continue
     if (compareVersions(entry, activeVersion) >= 0) continue
     const dir = engineVersionDir(cacheRoot, entry)
     if (!isUsableEngineDir(dir, exists)) continue
