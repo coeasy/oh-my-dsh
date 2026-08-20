@@ -81,7 +81,7 @@ describe('electron-builder manifest', () => {
     const onlineYml = readFileSync(join(desktop, 'electron-builder-online.yml'), 'utf8')
     assert.doesNotMatch(onlineYml, /extends: \.\/electron-builder\.yml/)
     assert.match(onlineYml, /appId: com\.mydsh\.desktop/)
-    assert.match(onlineYml, /files:\n  - out\/main\.js/)
+    assert.match(onlineYml, /files:\n {2}- out\/main\.js/)
     assert.match(onlineYml, /from: runtime-system\.json/)
     assert.match(onlineYml, /my-dsh-online-Setup-/)
     assert.doesNotMatch(onlineYml, /runtime\/payload/)
