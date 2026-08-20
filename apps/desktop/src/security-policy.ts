@@ -1,5 +1,4 @@
-import { normalize, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { pathToFileURL } from 'node:url'
 
 function isHarnessUrl(rawUrl: string): boolean {
   try {
@@ -12,18 +11,17 @@ function isHarnessUrl(rawUrl: string): boolean {
   }
 }
 
-function isPathInside(child: string, parent: string): boolean {
-  const c = normalize(resolve(child))
-  const p = normalize(resolve(parent))
-  return c === p || c.startsWith(p.endsWith(sep) ? p : `${p}${sep}`)
+function isTrustedFileUrl(rawUrl: URL, trustedRoot: string): boolean {
+  const child = rawUrl.href
+  const parent = pathToFileURL(trustedRoot).href.replace(/\/$/, '')
+  return child === parent || child.startsWith(`${parent}/`)
 }
 
 export function isTrustedAppUrl(rawUrl: string, trustedFileRoots: string[] = []): boolean {
   try {
     const url = new URL(rawUrl)
     if (url.protocol === 'file:') {
-      const filePath = fileURLToPath(url)
-      return trustedFileRoots.some((root) => isPathInside(filePath, root))
+      return trustedFileRoots.some((root) => isTrustedFileUrl(url, root))
     }
   } catch {
     return false
