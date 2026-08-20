@@ -26,9 +26,12 @@ function fail(msg) {
 
 // 1. 打包 VSIX
 console.log('e2e: packing vscode extension…')
-execFileSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['pack:vscode'], {
+execFileSync('pnpm', ['pack:vscode'], {
   cwd: root,
   stdio: 'inherit',
+  // Windows exposes pnpm as a cmd shim; direct execFileSync of pnpm.cmd
+  // returns EINVAL on hosted runners.
+  shell: process.platform === 'win32',
 })
 
 // 2. 解析最新 VSIX 产物
