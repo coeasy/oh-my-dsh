@@ -7,8 +7,11 @@ describe('navigation trust boundary', () => {
     assert.equal(isTrustedAppUrl('file:///app/index.html'), false)
     assert.equal(isTrustedAppUrl('file:///app/index.html', ['/app']), true)
     assert.equal(isTrustedAppUrl('file:///app/../etc/passwd', ['/app']), false)
-    assert.equal(isTrustedAppUrl('http://127.0.0.1:43127'), true)
-    assert.equal(isTrustedAppUrl('http://localhost:43127'), true)
+    const trusted = ['http://127.0.0.1:43127']
+    assert.equal(isTrustedAppUrl('http://127.0.0.1:43127', [], trusted), true)
+    assert.equal(isTrustedAppUrl('http://127.0.0.1:43127/session', [], trusted), true)
+    assert.equal(isTrustedAppUrl('http://127.0.0.1:43128', [], trusted), false)
+    assert.equal(isTrustedAppUrl('http://localhost:43127', [], trusted), false)
     assert.equal(isTrustedAppUrl('https://127.0.0.1:43127'), false)
     assert.equal(isTrustedAppUrl('http://example.com'), false)
     assert.equal(isTrustedAppUrl('javascript:alert(1)'), false)
@@ -16,12 +19,22 @@ describe('navigation trust boundary', () => {
 
   it('only grants clipboard writes from the trusted main frame', () => {
     assert.equal(
-      canGrantWindowPermission('clipboard-sanitized-write', 'http://127.0.0.1:43127/session', true),
+      canGrantWindowPermission(
+        'clipboard-sanitized-write',
+        'http://127.0.0.1:43127/session',
+        true,
+        ['http://127.0.0.1:43127'],
+      ),
       true,
     )
     assert.equal(
-      canGrantWindowPermission('clipboard-sanitized-write', 'http://localhost:43127/session', true),
-      true,
+      canGrantWindowPermission(
+        'clipboard-sanitized-write',
+        'http://localhost:43127/session',
+        true,
+        ['http://127.0.0.1:43127'],
+      ),
+      false,
     )
     assert.equal(
       canGrantWindowPermission('clipboard-read', 'http://127.0.0.1:43127/session', true),

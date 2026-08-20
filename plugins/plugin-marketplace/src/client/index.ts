@@ -8,9 +8,66 @@
  * material prompt is skippable, and the section is a first-class nav entry.
  */
 
-import { createElement as h, useCallback, useEffect, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 
 const API = '/coeasy-market/api'
+
+type MarketActionKind =
+  'install' | 'update' | 'remove' | 'toggle' | 'restore' | 'uninstall-market' | 'uninstall-app'
+
+declare global {
+  interface Window {
+    dshDesktop?: {
+      marketAction?: (request: {
+        kind: MarketActionKind
+        payload: Record<string, unknown>
+      }) => Promise<unknown>
+    }
+  }
+}
+
+const brokerPending = new Map<
+  string,
+  { resolve(value: Row): void; reject(error: Error): void; timer: number }
+>()
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (event) => {
+    const data = event.data as {
+      channel?: unknown
+      requestId?: unknown
+      result?: unknown
+      error?: unknown
+    }
+    if (data?.channel !== 'dsh-market-response' || typeof data.requestId !== 'string') return
+    const pending = brokerPending.get(data.requestId)
+    if (!pending) return
+    brokerPending.delete(data.requestId)
+    window.clearTimeout(pending.timer)
+    if (typeof data.error === 'string' && data.error) pending.reject(new Error(data.error))
+    else pending.resolve((data.result ?? {}) as Row)
+  })
+}
+
+async function marketAction(
+  kind: MarketActionKind,
+  payload: Record<string, unknown>,
+): Promise<Row> {
+  if (typeof window === 'undefined') throw new Error('trusted marketplace host is unavailable')
+  if (window.dshDesktop?.marketAction) {
+    return (await window.dshDesktop.marketAction({ kind, payload })) as Row
+  }
+  if (window.parent === window) throw new Error('trusted marketplace host is unavailable')
+  const requestId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+  return new Promise<Row>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      brokerPending.delete(requestId)
+      reject(new Error('trusted marketplace host timed out'))
+    }, 130_000)
+    brokerPending.set(requestId, { resolve, reject, timer })
+    window.parent.postMessage({ channel: 'dsh-market-request', requestId, kind, payload }, '*')
+  })
+}
 
 const dict = {
   zh: {
@@ -33,6 +90,7 @@ const dict = {
     loadingSources: '正在加载数据源',
     offline: '在线数据源暂不可用，当前显示内置快照',
     retry: '重试',
+    loadMore: '加载更多',
     stageVerifying: '正在执行安装前安全校验…',
     stageInstalling: '正在通过官方 CLI 安装…',
     stageRefreshing: '正在刷新安装状态…',
@@ -110,6 +168,7 @@ const dict = {
     loadingSources: 'Loading data sources',
     offline: 'Online sources unavailable — showing built-in snapshot',
     retry: 'Retry',
+    loadMore: 'Load more',
     stageVerifying: 'Running pre-install security checks…',
     stageInstalling: 'Installing via the official CLI…',
     stageRefreshing: 'Refreshing install state…',
@@ -172,8 +231,6 @@ const dict = {
 } as const
 type Locale = keyof typeof dict
 
-// Progressive multi-source load order (matches ADAPTERS on the host side).
-const SRC_ORDER = ['awesome', 'store1024', 'dshfind', 'github', 'builtin']
 type Row = Record<string, unknown>
 
 interface SlotsService {
@@ -674,76 +731,87 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
   const [diag, setDiag] = useState('')
   const [progress, setProgress] = useState('')
   const [manageOpen, setManageOpen] = useState(false)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
+  const [total, setTotal] = useState(0)
+  const loadAbort = useRef<AbortController | null>(null)
 
   const load = useCallback(
-    async (refresh: boolean, src?: string) => {
-      const s = src ?? source
-      if (s !== 'all') {
-        // Single-source view (source picker): just swap the list in place.
-        try {
-          const res = await fetch(
-            `${API}/list?source=${encodeURIComponent(s)}${refresh ? '&refresh=1' : ''}`,
-            { cache: 'no-store' },
-          )
-          const body = (await res.json()) as { repos: Row[]; profile?: string }
-          setRepos(body.repos ?? [])
-          if (typeof body.profile === 'string') setProfile(body.profile)
-        } catch {
-          setRepos((r) => r ?? [])
-        }
-        return
+    async (refresh: boolean, nextPage = 1, append = false) => {
+      loadAbort.current?.abort()
+      const controller = new AbortController()
+      loadAbort.current = controller
+      if (!append) {
+        setProgress(dict[locale].loading)
+        setRepos(null)
       }
-      // Progressive multi-source: fetch each source concurrently and fill the
-      // list as each arrives, with a visible "loading other sources" hint.
-      const map = new Map<string, Row>()
-      let finished = 0
-      const total = SRC_ORDER.length
-      setProgress(t('loading'))
-      setRepos(null)
-      await Promise.all(
-        SRC_ORDER.map(async (id) => {
-          try {
-            const res = await fetch(`${API}/list?source=${id}${refresh ? '&refresh=1' : ''}`, {
-              cache: 'no-store',
-            })
-            const body = (await res.json()) as {
-              repos: Row[]
-              categories: string[]
-              sources: Row[]
-              profile?: string
-            }
-            for (const r of body.repos ?? []) map.set(String(r.full_name), r)
-            if (typeof body.profile === 'string') setProfile(body.profile)
-            if (Array.isArray(body.categories))
-              setCategories((prev) => (prev.length > 0 ? prev : body.categories))
-            if (Array.isArray(body.sources))
-              setSources((prev) => {
-                const byId = new Map(prev.map((x) => [String(x.id), x]))
-                for (const si of body.sources) byId.set(String(si.id), si)
-                return SRC_ORDER.map((sid) => byId.get(sid)).filter((x): x is Row => Boolean(x))
-              })
-            setRepos([...map.values()])
-          } catch {
-            /* keep whatever already loaded */
-          }
-          finished += 1
-          setProgress(`${t('loadingSources')} ${finished}/${total}`)
-        }),
-      )
-      setRepos([...map.values()])
-      setProgress('')
+      try {
+        const params = new URLSearchParams({
+          source,
+          page: String(nextPage),
+          page_size: '50',
+        })
+        if (query.trim()) params.set('q', query.trim())
+        if (refresh) params.set('refresh', '1')
+        const res = await fetch(`${API}/list?${params.toString()}`, {
+          cache: 'no-store',
+          signal: controller.signal,
+        })
+        if (!res.ok) throw new Error(`catalog HTTP ${res.status}`)
+        const body = (await res.json()) as {
+          repos?: Row[]
+          categories?: string[]
+          sources?: Row[]
+          profile?: string
+          page?: number
+          total?: number
+          hasMore?: boolean
+        }
+        const incoming = Array.isArray(body.repos) ? body.repos : []
+        setRepos((current) => {
+          if (!append) return incoming
+          const byName = new Map((current ?? []).map((row) => [String(row.full_name), row]))
+          for (const row of incoming) byName.set(String(row.full_name), row)
+          return [...byName.values()]
+        })
+        if (typeof body.profile === 'string') setProfile(body.profile)
+        if (Array.isArray(body.categories)) setCategories(body.categories)
+        if (Array.isArray(body.sources)) {
+          setSources((current) => {
+            const byId = new Map(current.map((row) => [String(row.id), row]))
+            for (const row of body.sources ?? []) byId.set(String(row.id), row)
+            return [...byId.values()]
+          })
+        }
+        setPage(Number.isFinite(body.page) ? Number(body.page) : nextPage)
+        setTotal(Number.isFinite(body.total) ? Number(body.total) : incoming.length)
+        setHasMore(body.hasMore === true)
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setRepos((current) => current ?? [])
+        setHasMore(false)
+        setOutput(error instanceof Error ? error.message : String(error))
+      } finally {
+        if (loadAbort.current === controller) {
+          loadAbort.current = null
+          setProgress('')
+        }
+      }
     },
-    [source],
+    [locale, query, source],
   )
 
-  // Open the market → always fetch the latest (fresh data on every open).
+  // Debounce full-index search and abort superseded source/query requests.
   useEffect(() => {
-    void load(true)
+    const timer = window.setTimeout(() => void load(false), query.trim() ? 250 : 0)
+    return () => {
+      window.clearTimeout(timer)
+      loadAbort.current?.abort()
+    }
   }, [load])
 
   const pickSource = (s: string) => {
     setSource(s)
-    if (s !== 'all') void load(true, s)
   }
 
   const act = useCallback(
@@ -756,16 +824,15 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
       setProgress(installing ? t('stageVerifying') : t('stageInstalling'))
       try {
         if (installing) setProgress(t('stageInstalling'))
-        const res = await fetch(`${API}/${kind}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        const body = (await res.json()) as { ok?: boolean; output?: string }
-        setOutput(body.output ?? `${kind} → ${res.status}`)
+        const body = (await marketAction(kind as MarketActionKind, payload)) as {
+          ok?: boolean
+          output?: string
+          error?: string
+        }
+        setOutput(body.output ?? body.error ?? `${kind} → ${body.ok ? 'OK' : 'FAIL'}`)
         if (body.ok) {
           setProgress(t('stageRefreshing'))
-          await load(false, source)
+          await load(false)
         }
       } catch (e) {
         setOutput(String(e))
@@ -814,9 +881,9 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
     const c = confirm
     setConfirm(null)
     if (c.kind === 'remove') {
-      await act('remove', { pkg: c.spec }, c.fullName)
+      await act('remove', { full_name: c.fullName }, c.fullName)
     } else {
-      await act(c.kind, { spec: c.spec, type: c.type, full_name: c.fullName }, c.fullName)
+      await act(c.kind, { full_name: c.fullName }, c.fullName)
     }
   }
 
@@ -841,12 +908,7 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
     setOutput('')
     try {
       const backup = JSON.parse(backupJson)
-      const r = await fetch(`${API}/restore`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ backup }),
-      })
-      const b = (await r.json()) as {
+      const b = (await marketAction('restore', { backup })) as {
         restored?: string[]
         failed?: Array<{ pkg: string; error: string }>
         ok?: boolean
@@ -902,14 +964,12 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
     if (typeof window !== 'undefined' && !window.confirm(t('confirmUninstallMarket'))) return
     setOutput('')
     try {
-      const r = await fetch(`${API}/uninstall-market`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      })
-      const b = (await r.json()) as { ok?: boolean; output?: string }
+      const b = (await marketAction('uninstall-market', {})) as {
+        ok?: boolean
+        output?: string
+      }
       setOutput(`${b.ok ? 'OK' : 'FAIL'}\n${b.output ?? ''}`)
-      await load(false, source)
+      await load(false)
     } catch (e) {
       setOutput(String(e))
     }
@@ -919,12 +979,10 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
     if (typeof window !== 'undefined' && !window.confirm(t('confirmUninstallApp'))) return
     setOutput('')
     try {
-      const r = await fetch(`${API}/uninstall-app`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      })
-      const b = (await r.json()) as { ok?: boolean; message?: string }
+      const b = (await marketAction('uninstall-app', {})) as {
+        ok?: boolean
+        message?: string
+      }
       setOutput(`${b.ok ? 'OK' : 'FAIL'}\n${b.message ?? ''}`)
     } catch (e) {
       setOutput(String(e))
@@ -983,7 +1041,7 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
         placeholder: t('search'),
         onChange: (e: { target: { value: string } }) => setQuery(e.target.value),
       }),
-      h('button', { style: S.btn, onClick: () => void load(true, source) }, t('refresh')),
+      h('button', { style: S.btn, onClick: () => void load(true) }, t('refresh')),
       h(
         'button',
         {
@@ -1044,7 +1102,7 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
             'button',
             {
               style: { ...S.cardBtn, flexShrink: 0 },
-              onClick: () => void load(true, source),
+              onClick: () => void load(true),
             },
             t('retry'),
           ),
@@ -1262,6 +1320,17 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
               ),
             )
           }),
+    repos !== null && sorted.length > 0 && hasMore
+      ? h(
+          'div',
+          { style: { ...S.toolbar, justifyContent: 'center' } },
+          h(
+            'button',
+            { style: S.btn, onClick: () => void load(false, page + 1, true) },
+            `${t('loadMore')} (${String(repos.length)}/${String(total)})`,
+          ),
+        )
+      : null,
     output !== ''
       ? h(
           'details',

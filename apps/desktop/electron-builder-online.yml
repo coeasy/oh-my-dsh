@@ -1,0 +1,36 @@
+# Slim/system-runtime edition. It inherits signing, fuses and targets from the
+# offline config, but deliberately omits the engine payload. Users provide a
+# current `dsh` on PATH or set DSH_BIN to an absolute launcher.
+extends: ./electron-builder.yml
+extraMetadata:
+  name: my-dsh
+  dshEdition: system
+extraResources:
+  - from: out/embedded-client.js
+    to: embedded-client.js
+  - from: out/plugin-marketplace
+    to: plugin-marketplace
+  - from: runtime-system.json
+    to: runtime.json
+  - from: splash.html
+    to: splash.html
+  - from: setup.html
+    to: setup.html
+  - from: env.example
+    to: env.example
+  - from: build/icon.png
+    to: icon.png
+afterPack: after-pack-online.cjs
+win:
+  artifactName: my-dsh-online-${version}-win.${ext}
+  extraResources: []
+nsis:
+  artifactName: my-dsh-online-Setup-${version}.${ext}
+portable:
+  artifactName: my-dsh-online-${version}-portable.exe
+mac:
+  artifactName: my-dsh-online-${version}-mac.${ext}
+  extraResources: []
+linux:
+  artifactName: my-dsh-online-${version}-linux.${ext}
+  extraResources: []

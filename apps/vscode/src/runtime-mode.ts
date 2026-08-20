@@ -14,13 +14,13 @@ export interface VscodeEngineLaunch {
   cloneBin?: string
 }
 
-/** Installed VSIX defaults to download; F5 / development stays local unless the user set the setting. */
+/** Installed VSIX and F5 both default to the locally installed dsh runtime. */
 export function resolveVscodeRuntimeMode(input: {
   production: boolean
   configured?: RuntimeMode
 }): RuntimeMode {
   if (input.configured) return input.configured
-  return input.production ? 'download' : 'local'
+  return 'local'
 }
 
 /**
@@ -35,7 +35,7 @@ export function resolveVscodeEngineLaunch(input: {
   platform?: NodeJS.Platform
 }): VscodeEngineLaunch {
   if (input.configured) return { mode: input.configured }
-  if (input.production) return { mode: 'download' }
+  if (input.production) return { mode: 'local' }
   const exists = input.exists ?? existsSync
   const platform = input.platform ?? process.platform
   const join = pathFor(platform)

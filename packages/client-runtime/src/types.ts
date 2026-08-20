@@ -21,6 +21,10 @@ export interface LaunchOptions {
   env?: NodeJS.ProcessEnv
   /** Append child stdout/stderr when set. */
   logPath?: string
+  /** Maximum in-memory stdout/stderr tail retained for readiness/errors. */
+  maxOutputBytes?: number
+  /** Rotate logPath when it reaches this many bytes. */
+  maxLogBytes?: number
   /** Stage progress callback (resolving → downloading → spawning → waiting-ready → ready). */
   onProgress?: (stage: LaunchStage, detail?: string) => void
 }

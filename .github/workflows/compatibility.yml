@@ -1,0 +1,63 @@
+name: compatibility
+
+on:
+  schedule:
+    - cron: '17 4 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  latest-engine:
+    name: latest engine (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck and unit tests
+        run: |
+          pnpm typecheck
+          pnpm test
+
+      - name: Build VSIX against the latest Harness
+        run: pnpm build:clients:latest
+        env:
+          DSH_CLIENTS: vscode
+          DSH_PACK_SKIP_INSTALLER: '1'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Engine smoke test
+        run: pnpm smoke:engine
+
+      - name: Upload compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-${{ matrix.os }}
+          path: |
+            runtime/engine-resolved.json
+            apps/vscode/*.vsix
+          if-no-files-found: ignore
+          retention-days: 14

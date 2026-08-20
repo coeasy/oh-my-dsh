@@ -7,6 +7,7 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -29,8 +30,10 @@ import {
   type RunningHost,
 } from '@dsh/client-runtime'
 import { hasDeepSeekApiKey, upsertEnvKey } from './api-key.ts'
+import { checkForAppUpdates } from './app-update-service.ts'
 import { createStatusTray, type StatusTray } from './app-tray.ts'
 import { installMarket, isMarketInstalled, killBootstrapProcesses } from './market-bootstrap.ts'
+import { executeMarketBrokerAction, type MarketActionRequest } from './market-broker.ts'
 import type { RuntimeSnapshot } from './contracts.ts'
 import { buildDiagnosticsReport } from './diagnostics.ts'
 import { loadDesktopSettings, saveDesktopSettings } from './desktop-settings.ts'
@@ -85,6 +88,7 @@ let quitting = false
 let forceExiting = false
 let failureDialogVisible = false
 let setupWaiter: ((result: { workspace: string; apiKey: string }) => void) | undefined
+let marketBrokerToken = ''
 
 function moduleDir(): string {
   return dirname(fileURLToPath(import.meta.url))
@@ -360,7 +364,11 @@ function createWindow(): BrowserWindow {
     void window.webContents.insertCSS(FILL_VIEWPORT_CSS)
     void window.webContents.insertCSS(NO_DRAG_INTERACTIVES_CSS)
   })
-  secureWindow(window, [desktopResourcePath('splash.html'), desktopResourcePath('setup.html')])
+  secureWindow(
+    window,
+    [desktopResourcePath('splash.html'), desktopResourcePath('setup.html')],
+    () => (lastSnapshot.url ? [new URL(lastSnapshot.url).origin] : []),
+  )
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = undefined
   })
@@ -422,6 +430,7 @@ async function launchHarness(): Promise<void> {
     moduleDir: moduleDir(),
     repoRoot: repoRoot(),
     env: process.env,
+    runtime: bundled,
   })
   if (engine.cloneBin && engine.dshCommand) {
     writeDevLauncher({ command: engine.dshCommand, cloneBin: engine.cloneBin })
@@ -445,6 +454,11 @@ async function launchHarness(): Promise<void> {
   )
   if (engine.mode === 'bundled' && spawn.env) {
     spawn.env = sanitizeBundledSpawnEnv(spawn.env)
+  }
+  marketBrokerToken = randomBytes(32).toString('base64url')
+  spawn.env = {
+    ...(spawn.env ?? process.env),
+    DSH_MARKET_BROKER_TOKEN: marketBrokerToken,
   }
   try {
     rememberEngine(
@@ -646,7 +660,7 @@ async function showMobilePairing(): Promise<void> {
       webSecurity: true,
     },
   })
-  secureWindow(mobileWindow)
+  secureWindow(mobileWindow, [], [new URL(snapshot.desktopUrl).origin])
   mobileWindow.on('closed', () => {
     mobileWindow = undefined
   })
@@ -779,55 +793,6 @@ async function checkForEngineUpdate(interactive: boolean): Promise<string> {
   return msg
 }
 
-async function checkForUpdates(interactive: boolean): Promise<void> {
-  const repo = parseGithubRepo(process.env.DSH_GITHUB_REPO)
-  const isChinese = harnessLocale() === 'zh'
-  if (!repo) {
-    if (interactive) {
-      await dialog.showMessageBox({
-        type: 'info',
-        message: isChinese ? '未配置更新源。' : 'Update source is not configured.',
-        detail: isChinese
-          ? '设置环境变量 DSH_GITHUB_REPO=owner/repo 后即可检查 GitHub Releases。'
-          : 'Set DSH_GITHUB_REPO=owner/repo to check GitHub Releases.',
-        buttons: ['OK'],
-      })
-    }
-    return
-  }
-  const response = await net.fetch(
-    `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest`,
-    {
-      headers: { 'User-Agent': 'my-dsh' },
-    },
-  )
-  if (!response.ok) throw new Error(`GitHub releases HTTP ${response.status}`)
-  const body = (await response.json()) as { tag_name?: unknown; html_url?: unknown }
-  const latest = typeof body.tag_name === 'string' ? body.tag_name : ''
-  const url = typeof body.html_url === 'string' ? body.html_url : ''
-  if (!latest || !isNewerVersion(latest, app.getVersion())) {
-    if (interactive) {
-      await dialog.showMessageBox({
-        type: 'info',
-        message: isChinese ? '已是最新版本。' : 'You are on the latest version.',
-        buttons: ['OK'],
-      })
-    }
-    return
-  }
-  const result = await dialog.showMessageBox({
-    type: 'info',
-    message: isChinese ? `发现 ${latest}` : `Update ${latest} is available`,
-    detail: isChinese
-      ? '打开 GitHub Release 下载，并核对 SHA256SUMS.txt。'
-      : 'Open the GitHub Release and verify SHA256SUMS.txt.',
-    buttons: isChinese ? ['打开', '稍后'] : ['Open', 'Later'],
-    defaultId: 0,
-    cancelId: 1,
-  })
-  if (result.response === 0 && url) await shell.openExternal(url)
-}
-
 async function showSetupIfNeeded(fallback: string): Promise<void> {
   const settings = loadDesktopSettings(app.getPath('userData'))
   launchDirectory = resolveLaunchDirectory(settings.workspace, fallback)
@@ -850,6 +815,45 @@ async function showSetupIfNeeded(fallback: string): Promise<void> {
   persistApiKey(result.apiKey)
   const userData = app.getPath('userData')
   saveDesktopSettings(userData, { ...loadDesktopSettings(userData), apiKeyPrompted: true })
+}
+
+async function confirmMarketAction(request: MarketActionRequest): Promise<boolean> {
+  const zh = harnessLocale() === 'zh'
+  const target =
+    typeof request.payload.full_name === 'string'
+      ? request.payload.full_name
+      : request.kind === 'restore'
+        ? zh
+          ? '备份中的插件集合'
+          : 'the plugins in this backup'
+        : zh
+          ? '当前安装'
+          : 'this installation'
+  const labels: Record<MarketActionRequest['kind'], { zh: string; en: string }> = {
+    install: { zh: '安装插件', en: 'Install plugin' },
+    update: { zh: '更新插件', en: 'Update plugin' },
+    remove: { zh: '移除插件', en: 'Remove plugin' },
+    toggle: { zh: '更改插件状态', en: 'Change plugin state' },
+    restore: { zh: '恢复插件备份', en: 'Restore plugin backup' },
+    'uninstall-market': { zh: '卸载插件市场', en: 'Uninstall Marketplace' },
+    'uninstall-app': { zh: '卸载 my-dsh', en: 'Uninstall my-dsh' },
+  }
+  const label = zh ? labels[request.kind].zh : labels[request.kind].en
+  const options: MessageBoxOptions = {
+    type:
+      request.kind.startsWith('uninstall') || request.kind === 'remove' ? 'warning' : 'question',
+    title: label,
+    message: zh ? `确认${label}？` : `${label}?`,
+    detail: String(target),
+    buttons: zh ? ['继续', '取消'] : ['Continue', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  }
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options)
+  return result.response === 0
 }
 
 function installIpc(): void {
@@ -882,6 +886,21 @@ function installIpc(): void {
   ipcMain.handle('desktop:should-skip-onboarding', () => {
     const settings = loadDesktopSettings(app.getPath('userData'))
     return settings.apiKeyPrompted === true && !currentApiKeyPresent()
+  })
+  ipcMain.handle('market:action', async (event, request: unknown) => {
+    if (!host?.url) return { ok: false, error: 'Harness is not ready' }
+    try {
+      return await executeMarketBrokerAction({
+        request,
+        senderUrl: event.senderFrame?.url ?? event.sender.getURL(),
+        harnessUrl: host.url,
+        token: marketBrokerToken,
+        confirm: confirmMarketAction,
+        fetchImpl: (url, init) => net.fetch(url, init),
+      })
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
   })
 }
 
@@ -922,7 +941,10 @@ function installMenu(): void {
         { type: 'separator' },
         {
           label: isChinese ? '检查更新…' : 'Check for Updates…',
-          click: () => void checkForUpdates(true).catch(showUnexpectedError),
+          click: () =>
+            void checkForAppUpdates({ interactive: true, locale: harnessLocale() }).catch(
+              showUnexpectedError,
+            ),
         },
         ...(process.platform === 'darwin'
           ? []
@@ -1017,7 +1039,7 @@ async function bootstrap(): Promise<void> {
   await showSetupIfNeeded(fallback)
   const settings = loadDesktopSettings(app.getPath('userData'))
   if (settings.autoUpdate !== false && app.isPackaged) {
-    void checkForUpdates(false).catch(() => undefined)
+    void checkForAppUpdates({ interactive: false, locale: harnessLocale() }).catch(() => undefined)
   }
   await launchHarness()
 }

@@ -19,7 +19,13 @@ const main = source('../src/main.ts')
 const security = source('../src/security.ts')
 
 describe('preload exposure surface (C3)', () => {
-  const EXPOSED_METHODS = ['pickFolder', 'setupDefaults', 'completeSetup', 'shouldSkipOnboarding']
+  const EXPOSED_METHODS = [
+    'pickFolder',
+    'setupDefaults',
+    'completeSetup',
+    'shouldSkipOnboarding',
+    'marketAction',
+  ]
 
   it('exposes exactly the allowlisted dshDesktop methods', () => {
     const block = /contextBridge\.exposeInMainWorld\('dshDesktop',\s*\{([\s\S]*?)\n\}\)/.exec(
@@ -49,6 +55,7 @@ describe('preload exposure surface (C3)', () => {
       'desktop:should-skip-onboarding',
       'mobile:open-pairing',
       'mobile:status',
+      'market:action',
     ])
     const channels = [...preload.matchAll(/ipcRenderer\.invoke\('([^']+)'/g)].map((m) => m[1])
     assert.ok(channels.length >= EXPOSED_METHODS.length + 1, 'expected several invoke call sites')
@@ -73,8 +80,8 @@ describe('window security flags (C3)', () => {
   })
 
   it('secures every window instance through secureWindow()', () => {
-    assert.match(main, /secureWindow\(window(?:,|\))/, 'main window must be hardened')
-    assert.match(main, /secureWindow\(mobileWindow\)/, 'mobile window must be hardened')
+    assert.match(main, /secureWindow\(\s*window(?:,|\))/, 'main window must be hardened')
+    assert.match(main, /secureWindow\(mobileWindow,/, 'mobile window must be hardened')
   })
 
   it('navigation interception: untrusted urls are denied and offloaded to the shell', () => {

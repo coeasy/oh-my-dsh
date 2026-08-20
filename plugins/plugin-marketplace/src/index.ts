@@ -9,18 +9,10 @@
  * Security: mutating routes accept same-origin loopback POSTs only.
  */
 
+import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { spawn } from 'node:child_process'
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -29,25 +21,17 @@ import {
   REDIRECTS,
   CATEGORIES,
   classify,
-  dshHomeOf,
   detectType,
   fetchReadme,
   isInstalled,
-  isGithubRepo,
   profileDirOf,
   readOfficialState,
   safeExternalUrl,
   type RegistryEntry,
 } from './registry.ts'
-import {
-  childEnv,
-  installSpecOf,
-  isInstallSpec,
-  isNpmSpec,
-  runPluginCommand,
-  type RunResult,
-} from './install.ts'
-import { loadCatalog, scanSource } from './catalog.ts'
+import { childEnv, installSpecOf, isNpmSpec, runPluginCommand } from './install.ts'
+import { loadCatalog, paginateCatalog, resolveCatalogEntry, scanSource } from './catalog.ts'
+import { installFileTypeAtomic } from './file-installer.ts'
 import { verifyNpmPackage, verifyTarballIntegrity } from './verify.ts'
 import {
   BACKUP_FORMAT,
@@ -133,6 +117,15 @@ function trustedRequest(request: IncomingMessage): boolean {
   }
 }
 
+function brokerRequest(request: IncomingMessage): boolean {
+  const expected = process.env.DSH_MARKET_BROKER_TOKEN
+  const supplied = request.headers['x-dsh-market-broker']
+  if (!expected || typeof supplied !== 'string') return false
+  const left = Buffer.from(expected)
+  const right = Buffer.from(supplied)
+  return left.length === right.length && timingSafeEqual(left, right)
+}
+
 function requirePost(request: IncomingMessage, response: ServerResponse): boolean {
   if (request.method !== 'POST') {
     response.writeHead(405, { allow: 'POST' })
@@ -160,6 +153,93 @@ function entryView(entry: RegistryEntry, state: ReturnType<typeof readOfficialSt
     installSpec: installSpecOf({ ...entry, full_name: fullName }),
     type: detectType(entry),
     category: classify(entry),
+  }
+}
+
+interface CatalogTarget {
+  fullName: string
+  entry: RegistryEntry
+  spec: string
+  type: ReturnType<typeof detectType>
+}
+
+async function catalogTarget(body: Record<string, unknown>): Promise<CatalogTarget | undefined> {
+  const requested = typeof body.full_name === 'string' ? body.full_name.trim() : ''
+  const fullName = REDIRECTS.get(requested) ?? requested
+  const entry = await resolveCatalogEntry(fullName)
+  if (!entry) return undefined
+  return {
+    fullName,
+    entry,
+    spec: installSpecOf(entry),
+    type: detectType(entry),
+  }
+}
+
+async function installCatalogTarget(
+  target: CatalogTarget,
+  profile: string,
+  home: string | undefined,
+): Promise<{
+  status: number
+  body: Record<string, unknown>
+}> {
+  if (target.type === 'skill' || target.type === 'preset') {
+    const result = await installFileTypeAtomic(target.type, target.fullName, home)
+    return {
+      status: result.code === 0 ? 200 : 500,
+      body: { ok: result.code === 0, output: `${result.stdout}${result.stderr}`.slice(-8000) },
+    }
+  }
+  if (!isNpmSpec(target.spec)) {
+    return {
+      status: 400,
+      body: { ok: false, error: 'catalog entry has no verified npm package' },
+    }
+  }
+  const verify = await verifyNpmPackage(target.spec, target.fullName)
+  if (
+    !verify.ok ||
+    !verify.exists ||
+    verify.squat === true ||
+    !verify.integrity ||
+    !verify.tarball
+  ) {
+    return {
+      status: 403,
+      body: {
+        ok: false,
+        error: 'catalog package identity could not be verified',
+        output: verify.note || 'registry identity or integrity metadata is unavailable',
+        verify,
+      },
+    }
+  }
+  const tarball = await verifyTarballIntegrity({
+    tarball: verify.tarball,
+    integrity: verify.integrity,
+  })
+  verify.tarballCheck = tarball.status
+  if (tarball.status !== 'match') {
+    return {
+      status: 403,
+      body: {
+        ok: false,
+        error: 'tarball integrity is not verified',
+        output: tarball.note,
+        verify,
+      },
+    }
+  }
+  const result = await runPluginCommand(profile, ['add', target.spec], { home })
+  return {
+    status: result.code === 0 ? 200 : 500,
+    body: {
+      ok: result.code === 0,
+      spec: target.spec,
+      output: `${result.stdout}${result.stderr}`.slice(-8000),
+      verify,
+    },
   }
 }
 
@@ -210,65 +290,6 @@ function writeToggle(
   }
 }
 
-/* ---------- skill / preset 安装：官方目录，无脚本执行 ---------- */
-
-function installFileType(
-  type: 'skill' | 'preset',
-  fullName: string,
-  home: string | undefined,
-): Promise<RunResult> {
-  if (!isGithubRepo(fullName)) {
-    return Promise.resolve({ code: 400, stdout: '', stderr: 'invalid GitHub repository' })
-  }
-  let tmp: string
-  try {
-    tmp = mkdtempSync(join(tmpdir(), `coeasy-${type}-`))
-  } catch (error) {
-    return Promise.resolve({ code: 1, stdout: '', stderr: `创建临时目录失败: ${String(error)}` })
-  }
-  return new Promise((resolve) => {
-    const child = spawn(
-      'git',
-      ['clone', '--depth', '1', `https://github.com/${fullName}.git`, tmp],
-      { windowsHide: true },
-    )
-    let settled = false
-    const finish = (result: RunResult): void => {
-      if (settled) return
-      settled = true
-      resolve(result)
-    }
-    const cleanup = (): void => rmSync(tmp, { recursive: true, force: true })
-    const timer = setTimeout(() => child.kill(), 120_000)
-    child.on('error', (error) => {
-      clearTimeout(timer)
-      cleanup()
-      finish({ code: 1, stdout: '', stderr: `git clone 失败: ${String(error)}` })
-    })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      if (code !== 0) {
-        cleanup()
-        return finish({ code: code ?? 1, stdout: '', stderr: `git clone 失败 (${code})` })
-      }
-      const homeDir = dshHomeOf(home)
-      const targetRoot =
-        type === 'skill' ? join(homeDir, 'skills') : join(homeDir, '.agent-presets')
-      const target = join(targetRoot, fullName.split('/').pop() ?? fullName)
-      try {
-        mkdirSync(targetRoot, { recursive: true })
-        rmSync(target, { recursive: true, force: true })
-        cpSync(tmp, target, { recursive: true })
-        cleanup()
-        finish({ code: 0, stdout: `installed ${type} → ${target}`, stderr: '' })
-      } catch (e) {
-        cleanup()
-        finish({ code: 1, stdout: '', stderr: `install 失败: ${String(e)}` })
-      }
-    })
-  })
-}
-
 /* ---------- pnpm 保障 ---------- */
 
 async function detectPnpm(): Promise<string | null> {
@@ -313,12 +334,16 @@ export function apply(ctx: Context, config: Config = {}): void {
           const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
           const refresh = url.searchParams.get('refresh') === '1'
           const source = url.searchParams.get('source') ?? 'all'
+          const page = Number(url.searchParams.get('page') ?? 1)
+          const pageSize = Number(url.searchParams.get('page_size') ?? 50)
+          const query = url.searchParams.get('q') ?? ''
           const s = state()
           if (source !== 'all') {
-            // Single-source request (progressive loading): scan only this
-            // adapter, bounded to MAX_PER_SOURCE, so the client can fill the
-            // list as each source arrives instead of waiting for all of them.
-            const { entries, sources } = await scanSource(source)
+            const { entries, sources } = await scanSource(source, refresh)
+            const result = paginateCatalog(
+              entries.filter((entry) => !EXCLUDED.has(entry.full_name)),
+              { page, pageSize, query },
+            )
             sendJson(response, 200, {
               profile,
               profileDir: profileDirOf(profile, home),
@@ -328,11 +353,19 @@ export function apply(ctx: Context, config: Config = {}): void {
               official: s,
               sources,
               source,
-              repos: entries.filter((e) => !EXCLUDED.has(e.full_name)).map((e) => entryView(e, s)),
+              page: result.page,
+              pageSize: result.pageSize,
+              total: result.total,
+              hasMore: result.hasMore,
+              repos: result.entries.map((entry) => entryView(entry, s)),
             })
             return
           }
           const index = await loadCatalog(refresh)
+          const result = paginateCatalog(
+            index.entries.filter((entry) => !EXCLUDED.has(entry.full_name)),
+            { page, pageSize, query },
+          )
           sendJson(response, 200, {
             profile,
             profileDir: profileDirOf(profile, home),
@@ -342,9 +375,11 @@ export function apply(ctx: Context, config: Config = {}): void {
             official: s,
             sources: index.sources,
             source,
-            repos: index.entries
-              .filter((e) => !EXCLUDED.has(e.full_name))
-              .map((e) => entryView(e, s)),
+            page: result.page,
+            pageSize: result.pageSize,
+            total: result.total,
+            hasMore: result.hasMore,
+            repos: result.entries.map((entry) => entryView(entry, s)),
           })
         },
       }),
@@ -369,70 +404,16 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/install',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
           const body = await readJsonBody(request)
           if (!requireJsonBody(body, response)) return
-          const spec = typeof body.spec === 'string' ? body.spec.trim() : ''
-          const type = typeof body.type === 'string' ? body.type : 'cordis'
-          if (!['cordis', 'skill', 'preset'].includes(type) || !isInstallSpec(spec)) {
-            sendJson(response, 400, { error: 'invalid spec' })
-            return
-          }
-          if (type === 'skill' || type === 'preset') {
-            const repo = spec.replace(/^github:/, '')
-            if (!isGithubRepo(repo)) {
-              sendJson(response, 400, { error: 'skill/preset requires github:owner/repo' })
-              return
-            }
-            const result = await installFileType(type as 'skill' | 'preset', repo, home)
-            return sendJson(response, result.code === 0 ? 200 : 500, {
-              ok: result.code === 0,
-              output: `${result.stdout}${result.stderr}`,
-              official: state(),
-            })
-          }
-          // P-B: verify npm-published specs before (and alongside) the install.
-          const verify =
-            isNpmSpec(spec) && type !== 'skill' && type !== 'preset'
-              ? await verifyNpmPackage(
-                  spec,
-                  typeof body.full_name === 'string' ? body.full_name : null,
-                )
-              : null
-          // C1 hard gate: the tarball must match the registry's dist.integrity
-          // before the official CLI runs. A mismatch is tampering — refuse.
-          if (verify?.integrity || verify?.tarball) {
-            const tarball = await verifyTarballIntegrity({
-              tarball: verify.tarball,
-              integrity: verify.integrity,
-            })
-            verify.tarballCheck = tarball.status
-            verify.note =
-              tarball.status === 'mismatch'
-                ? `${tarball.note}${verify.note ? `\n${verify.note}` : ''}`
-                : verify.note
-            if (tarball.status === 'mismatch') {
-              return sendJson(response, 403, {
-                ok: false,
-                spec,
-                error: 'integrity mismatch',
-                output: tarball.note,
-                official: state(),
-                verify,
-              })
-            }
-          }
-          const result = await runPluginCommand(profile, ['add', spec], { home })
-          sendJson(response, result.code === 0 ? 200 : 500, {
-            ok: result.code === 0,
-            spec,
-            output: `${result.stdout}${result.stderr}`.slice(-8000),
-            official: state(),
-            verify,
-          })
+          const target = await catalogTarget(body)
+          if (!target) return sendJson(response, 404, { error: 'catalog entry not found' })
+          const result = await installCatalogTarget(target, profile, home)
+          sendJson(response, result.status, { ...result.body, official: state() })
         },
       }),
 
@@ -440,13 +421,15 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/remove',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
           const body = await readJsonBody(request)
           if (!requireJsonBody(body, response)) return
-          const pkg = typeof body.pkg === 'string' ? body.pkg.trim() : ''
+          const target = await catalogTarget(body)
+          if (!target) return sendJson(response, 404, { error: 'catalog entry not found' })
+          const pkg = target.entry.pkg_name || target.entry.name
           if (!isNpmSpec(pkg)) {
             sendJson(response, 400, { error: 'invalid package' })
             return
@@ -466,24 +449,16 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/update',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
           const body = await readJsonBody(request)
           if (!requireJsonBody(body, response)) return
-          const spec = typeof body.spec === 'string' ? body.spec.trim() : ''
-          if (!isInstallSpec(spec)) {
-            sendJson(response, 400, { error: 'invalid spec' })
-            return
-          }
-          const result = await runPluginCommand(profile, ['add', spec])
-          sendJson(response, result.code === 0 ? 200 : 500, {
-            ok: result.code === 0,
-            spec,
-            output: `${result.stdout}${result.stderr}`.slice(-8000),
-            official: state(),
-          })
+          const target = await catalogTarget(body)
+          if (!target) return sendJson(response, 404, { error: 'catalog entry not found' })
+          const result = await installCatalogTarget(target, profile, home)
+          sendJson(response, result.status, { ...result.body, official: state() })
         },
       }),
 
@@ -492,7 +467,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/toggle',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
@@ -553,14 +528,17 @@ export function apply(ctx: Context, config: Config = {}): void {
           }
           const body = await readJsonBody(request)
           if (!requireJsonBody(body, response)) return
-          const spec = typeof body.spec === 'string' ? body.spec.trim() : ''
-          const fullName = typeof body.full_name === 'string' ? body.full_name : null
-          if (spec === '' || !isNpmSpec(spec)) {
+          const target = await catalogTarget(body)
+          if (!target || !isNpmSpec(target.spec)) {
             sendJson(response, 400, { error: 'invalid npm spec', verify: null })
             return
           }
-          const verify = await verifyNpmPackage(spec, fullName)
-          sendJson(response, 200, { spec, full_name: fullName, verify })
+          const verify = await verifyNpmPackage(target.spec, target.fullName)
+          sendJson(response, 200, {
+            spec: target.spec,
+            full_name: target.fullName,
+            verify,
+          })
         },
       }),
 
@@ -583,7 +561,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/restore',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
@@ -604,7 +582,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/uninstall-market',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
@@ -622,7 +600,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/uninstall-app',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
