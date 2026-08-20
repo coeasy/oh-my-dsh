@@ -15,7 +15,8 @@ if (!existsSync(pkg)) {
   throw new Error(`build-engine: missing ${pkg} — run pnpm fetch:engine first`)
 }
 
-function run(command, args, { quiet = false, check = true } = {}) {
+function run(command, args, { quiet = false, check = true, env = process.env } = {}) {
+  const runEnv = quiet ? { ...env, PNPM_CONFIG_REPORTER: 'silent' } : env
   const result = spawnSync(command, args, {
     cwd: dest,
     encoding: 'utf8',
@@ -23,7 +24,7 @@ function run(command, args, { quiet = false, check = true } = {}) {
     windowsHide: true,
     stdio: quiet ? ['ignore', 'pipe', 'pipe'] : 'inherit',
     timeout: 3_600_000,
-    env: quiet ? { ...process.env, PNPM_CONFIG_REPORTER: 'silent' } : process.env,
+    env: runEnv,
   })
   if (check && result.status !== 0) {
     if (quiet) {
@@ -40,55 +41,72 @@ function run(command, args, { quiet = false, check = true } = {}) {
 // pnpm's install diagnostics out of the product build while still replaying
 // the complete output when a command fails.
 run('pnpm', ['--reporter=silent', 'install', '--frozen-lockfile'], { quiet: true })
-run('pnpm', ['--reporter=silent', 'run', 'build'], { quiet: true })
 
-// The upstream web config deliberately reports oversized language/vendor
-// chunks. The build layout already puts those chunks behind stable boundaries;
-// supply the documented Vite limit through a disposable overlay so the clone
-// remains untouched and the warning is not emitted by release builds.
-const webConfig = '.dsh-vite-ci.config.ts'
+// pnpm/setup distributes pnpm 11 as a native executable. Harness's build
+// launcher invokes `process.execPath` on `npm_execpath`, so handing that native
+// ELF/Mach-O/PE file to Node fails before the actual build starts. Give the
+// launcher a disposable Node-compatible bridge that delegates to the native
+// pnpm executable while preserving the same arguments and environment.
+const pnpmExecBridge = join(root, '.dsh-pnpm-exec.cjs')
 writeFileSync(
-  join(dest, 'apps', 'web', webConfig),
-  "import baseConfig from './vite.config.ts'\n\nexport default {\n  ...baseConfig,\n  build: {\n    ...(baseConfig.build ?? {}),\n    chunkSizeWarningLimit: 1024,\n  },\n}\n",
+  pnpmExecBridge,
+  "const { spawnSync } = require('node:child_process')\nconst result = spawnSync('pnpm', process.argv.slice(2), { stdio: 'inherit', shell: process.platform === 'win32', env: process.env })\nif (result.error) throw result.error\nprocess.exit(result.status ?? 1)\n",
   'utf8',
 )
+const harnessEnv = { ...process.env, npm_execpath: pnpmExecBridge }
 try {
-  const webArgs = [
-    '--reporter=silent',
-    '--filter',
-    '@deepseek-ai/dsh-web-frontend',
-    'run',
-    'build',
-    '--',
-    '--config',
-    webConfig,
-  ]
-  const web = run('pnpm', webArgs, { quiet: true, check: false })
-  if (web.status !== 0) {
-    const alt = run(
-      'pnpm',
-      [
-        '--reporter=silent',
-        '--filter',
-        '@deepseek-ai/dsh-web-frontend',
-        'exec',
-        'vite',
-        'build',
-        '--config',
-        webConfig,
-      ],
-      { quiet: true, check: false },
-    )
-    if (alt.status !== 0) {
-      if (web.stdout) process.stdout.write(web.stdout)
-      if (web.stderr) process.stderr.write(web.stderr)
-      if (alt.stdout) process.stdout.write(alt.stdout)
-      if (alt.stderr) process.stderr.write(alt.stderr)
-      throw new Error(`build-engine: web build failed (exit ${web.status})`)
+  run('pnpm', ['--reporter=silent', 'run', 'build'], { quiet: true, env: harnessEnv })
+
+  // The upstream web config deliberately reports oversized language/vendor
+  // chunks. The build layout already puts those chunks behind stable boundaries;
+  // supply the documented Vite limit through a disposable overlay so the clone
+  // remains untouched and the warning is not emitted by release builds.
+  const webConfig = '.dsh-vite-ci.config.ts'
+  writeFileSync(
+    join(dest, 'apps', 'web', webConfig),
+    "import baseConfig from './vite.config.ts'\n\nexport default {\n  ...baseConfig,\n  build: {\n    ...(baseConfig.build ?? {}),\n    chunkSizeWarningLimit: 1024,\n  },\n}\n",
+    'utf8',
+  )
+  try {
+    const webArgs = [
+      '--reporter=silent',
+      '--filter',
+      '@deepseek-ai/dsh-web-frontend',
+      'run',
+      'build',
+      '--',
+      '--config',
+      webConfig,
+    ]
+    const web = run('pnpm', webArgs, { quiet: true, check: false, env: harnessEnv })
+    if (web.status !== 0) {
+      const alt = run(
+        'pnpm',
+        [
+          '--reporter=silent',
+          '--filter',
+          '@deepseek-ai/dsh-web-frontend',
+          'exec',
+          'vite',
+          'build',
+          '--config',
+          webConfig,
+        ],
+        { quiet: true, check: false, env: harnessEnv },
+      )
+      if (alt.status !== 0) {
+        if (web.stdout) process.stdout.write(web.stdout)
+        if (web.stderr) process.stderr.write(web.stderr)
+        if (alt.stdout) process.stdout.write(alt.stdout)
+        if (alt.stderr) process.stderr.write(alt.stderr)
+        throw new Error(`build-engine: web build failed (exit ${web.status})`)
+      }
     }
+  } finally {
+    rmSync(join(dest, 'apps', 'web', webConfig), { force: true })
   }
 } finally {
-  rmSync(join(dest, 'apps', 'web', webConfig), { force: true })
+  rmSync(pnpmExecBridge, { force: true })
 }
 
 const bin = join(dest, 'apps', 'cli', 'lib', 'bin.js')
