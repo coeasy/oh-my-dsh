@@ -27,7 +27,7 @@ A git submodule was deliberately **not** used: the clone is read-only build inpu
 
 ## Improvement roadmap
 
-See [docs/improvement/README.md](docs/improvement/README.md) for the phased improvement plan (engineering hygiene → quality hardening → feature expansion → long-term).
+See [docs/roadmap.md](docs/roadmap.md) for the current improvement roadmap.
 
 ## One-click build and install
 
