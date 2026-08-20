@@ -40,6 +40,7 @@
     "e2e": "node tests/e2e/vscode.e2e.mjs",
     "sign:check": "node scripts/check-signature.mjs",
     "version:packages": "changeset version",
+    "ci:publish": "node scripts/ci-publish.mjs",
     "fetch:engine": "node scripts/fetch-engine.mjs",
     "engine:build": "node scripts/build-engine.mjs",
     "engine:resolve": "node scripts/resolve-engine-ref.mjs",
