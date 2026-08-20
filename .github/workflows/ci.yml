@@ -1,5 +1,6 @@
 name: ci
 
+# Keep runner setup diagnostics deterministic across all operating systems.
 env:
   GIT_CONFIG_COUNT: 1
   GIT_CONFIG_KEY_0: advice.defaultBranchName
