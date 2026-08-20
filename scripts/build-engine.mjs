@@ -55,7 +55,8 @@ writeFileSync(
 )
 const harnessEnv = { ...process.env, npm_execpath: pnpmExecBridge }
 try {
-  run('pnpm', ['--reporter=silent', 'run', 'build'], { quiet: true, env: harnessEnv })
+  const harnessBuild = join(dest, 'node_modules', 'tsx', 'dist', 'cli.mjs')
+  run(process.execPath, [harnessBuild, 'scripts/build.ts'], { quiet: true, env: harnessEnv })
 
   // The upstream web config deliberately reports oversized language/vendor
   // chunks. The build layout already puts those chunks behind stable boundaries;
