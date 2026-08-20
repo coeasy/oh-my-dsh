@@ -35,7 +35,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --reporter=silent
 
       # On merge of a PR containing .changeset/*.md: open/refresh the
       # "Version Packages" PR (bumps versions + CHANGELOG, fixed group).

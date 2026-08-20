@@ -1,6 +1,5 @@
 name: ci
 
-# Keep runner setup diagnostics deterministic across all operating systems.
 env:
   GIT_CONFIG_COUNT: 1
   GIT_CONFIG_KEY_0: advice.defaultBranchName
@@ -39,7 +38,9 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # Keep dependency progress noise out of the build log while retaining
+        # lockfile and supply-chain verification; install failures still fail CI.
+        run: pnpm install --frozen-lockfile --reporter=silent
 
       - name: Typecheck
         run: pnpm typecheck
@@ -83,7 +84,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --reporter=silent
       - name: Pack VS Code VSIX
         run: pnpm pack:vscode
       - name: E2E smoke (vscode artifacts)
