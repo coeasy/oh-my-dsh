@@ -1,6 +1,12 @@
 import { join } from 'node:path'
 
-/** electron-builder `appOutDir` resources folder (`Resources` on macOS). */
+/**
+ * electron-builder `appOutDir` resources folder (`Resources` on macOS).
+ *
+ * @param {string} appOutDir
+ * @param {string} [electronPlatformName]
+ * @returns {string}
+ */
 export function appResourcesDir(appOutDir, electronPlatformName = process.platform) {
   const root = String(appOutDir || '')
   // electron-builder has used both `darwin` and `mac` for this context field
