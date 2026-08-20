@@ -4,6 +4,7 @@
 # files into the online package.
 appId: com.mydsh.desktop
 productName: my-dsh
+desktopName: my-dsh
 copyright: my-dsh client pack
 asar: true
 extraMetadata:
@@ -84,6 +85,7 @@ linux:
   icon: build/icon.png
   artifactName: my-dsh-online-${version}-linux.${ext}
   category: Development
+  syncDesktopName: true
   target:
     - AppImage
     - zip
