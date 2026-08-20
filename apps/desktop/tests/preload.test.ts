@@ -73,7 +73,7 @@ describe('window security flags (C3)', () => {
   })
 
   it('secures every window instance through secureWindow()', () => {
-    assert.match(main, /secureWindow\(window\)/, 'main window must be hardened')
+    assert.match(main, /secureWindow\(window(?:,|\))/, 'main window must be hardened')
     assert.match(main, /secureWindow\(mobileWindow\)/, 'mobile window must be hardened')
   })
 

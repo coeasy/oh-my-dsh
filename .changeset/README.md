@@ -6,9 +6,11 @@ keep all workspace package versions aligned to the product version (see
 
 ## How it works
 
-- The `fixed` group in `.changeset/config.json` locks
-  `@dsh/client-runtime`, `@dsh/plugin-embedded-client`, `my-dsh-vscode`, and
-  `@dsh/desktop` so they always bump together.
+- The `fixed` group in `.changeset/config.json` locks the private root product
+  package and every shipped client package so they always bump together.
+- `privatePackages.version` is enabled deliberately: these packages are not
+  published to npm, but their aligned version is used for artifacts and the
+  `v*` release tag.
 - Every change that affects a released package should include a changeset:
 
   ```bash
@@ -17,10 +19,8 @@ keep all workspace package versions aligned to the product version (see
 
   This writes a `.changeset/*.md` file describing the change.
 
-- On merge to `main`, a "Version Packages" PR bumps all packages in the fixed
-  group together and regenerates the per-package `CHANGELOG.md`. The root
-  `CHANGELOG.md` is the product-facing changelog and is updated manually on a
-  release.
+- On merge to `main`, a "Version Packages" PR bumps the fixed group together
+  and regenerates the product and per-package `CHANGELOG.md` files.
 
 ## Adding a changeset
 

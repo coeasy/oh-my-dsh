@@ -60,4 +60,14 @@ describe('restoreBackup', () => {
     assert.ok(r.skipped.includes('@deepseek-ai/dsh-app-boot'))
     assert.deepEqual(r.restored, [])
   })
+
+  it('rejects malformed package specs before spawning the CLI', async () => {
+    const r = await restoreBackup('web', {
+      dependencies: ['file:../../outside'],
+      bundles: [],
+    })
+    assert.equal(r.ok, false)
+    assert.equal(r.restored.length, 0)
+    assert.match(r.failed[0]?.error ?? '', /invalid|oversized/)
+  })
 })

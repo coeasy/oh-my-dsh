@@ -24,12 +24,12 @@ for (const file of required) {
 }
 
 const vsce = spawnSync(
-  'pnpm',
+  process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
   ['exec', 'vsce', 'package', '--no-dependencies', '--allow-missing-repository'],
   {
     cwd: extDir,
     encoding: 'utf8',
-    shell: true,
+    shell: false,
     windowsHide: true,
     timeout: 120_000,
   },

@@ -30,6 +30,8 @@ const required = [
   '.github/pull_request_template.md',
   '.github/workflows/ci.yml',
   '.github/workflows/release.yml',
+  '.github/workflows/version.yml',
+  '.changeset/config.json',
   '.github/ISSUE_TEMPLATE/bug.yml',
   '.github/ISSUE_TEMPLATE/feature.yml',
   '.github/ISSUE_TEMPLATE/config.yml',
@@ -81,11 +83,15 @@ for (const name of readdirSync(scriptDir)) {
   }
 }
 
-const listed = spawnSync('git', ['ls-files', '-z', '--', ENGINE_CLONE_DIRNAME, 'docs/competitive-analysis'], {
-  cwd: root,
-  encoding: 'buffer',
-  windowsHide: true,
-})
+const listed = spawnSync(
+  'git',
+  ['ls-files', '-z', '--', ENGINE_CLONE_DIRNAME, 'docs/competitive-analysis'],
+  {
+    cwd: root,
+    encoding: 'buffer',
+    windowsHide: true,
+  },
+)
 if (listed.status === 0) {
   const tracked = String(listed.stdout || '')
     .split('\0')
@@ -115,7 +121,10 @@ for (const dir of ['runtime', 'tests']) {
 }
 // Fail if agent/session residue was committed under tests/generated (gitignored).
 const generatedDir = join(root, 'tests', 'generated')
-if (existsSync(generatedDir) && readdirSync(generatedDir).filter((n) => n !== '.gitkeep').length > 0) {
+if (
+  existsSync(generatedDir) &&
+  readdirSync(generatedDir).filter((n) => n !== '.gitkeep').length > 0
+) {
   console.error(`hygiene: tests/generated contains residue; clean it or keep only .gitkeep`)
   failed = true
 }

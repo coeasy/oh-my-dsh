@@ -1,3 +1,4 @@
+import { win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { assertAbsolutePluginPath } from './paths.ts'
 
@@ -5,7 +6,11 @@ import { assertAbsolutePluginPath } from './paths.ts'
 
 /** Cordis/Node ESM on Windows rejects `D:/...`; the overlay `name` must be a file URL. */
 export function toPatchModuleName(pluginAbsPath: string): string {
-  return pathToFileURL(assertAbsolutePluginPath(pluginAbsPath)).href
+  const path = assertAbsolutePluginPath(pluginAbsPath)
+  // The engine uses Windows paths even when this helper is exercised by a
+  // POSIX CI runner. Without the explicit option, pathToFileURL treats a
+  // Windows path as a relative POSIX path and prefixes the runner cwd.
+  return pathToFileURL(path, { windows: win32.isAbsolute(path) }).href
 }
 
 export function buildPatchYaml(pluginAbsPath: string): string {

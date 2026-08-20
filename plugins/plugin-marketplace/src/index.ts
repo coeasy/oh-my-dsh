@@ -11,7 +11,16 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, rmSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -24,14 +33,29 @@ import {
   detectType,
   fetchReadme,
   isInstalled,
+  isGithubRepo,
   profileDirOf,
   readOfficialState,
+  safeExternalUrl,
   type RegistryEntry,
 } from './registry.ts'
-import { childEnv, installSpecOf, runPluginCommand, type RunResult } from './install.ts'
+import {
+  childEnv,
+  installSpecOf,
+  isInstallSpec,
+  isNpmSpec,
+  runPluginCommand,
+  type RunResult,
+} from './install.ts'
 import { loadCatalog, scanSource } from './catalog.ts'
 import { verifyNpmPackage, verifyTarballIntegrity } from './verify.ts'
-import { buildBackup, restoreBackup, BACKUP_FORMAT, type BackupFile } from './backup.ts'
+import {
+  BACKUP_FORMAT,
+  BACKUP_VERSION,
+  buildBackup,
+  restoreBackup,
+  type BackupFile,
+} from './backup.ts'
 import { uninstallApp, MARKET_PACKAGE } from './uninstall.ts'
 
 export const name = 'coeasy-market'
@@ -67,15 +91,35 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body))
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+const MAX_JSON_BODY_BYTES = 64 * 1024
+
+async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown> | null> {
   const chunks: Buffer[] = []
-  for await (const chunk of request) chunks.push(chunk as Buffer)
+  let size = 0
+  for await (const raw of request) {
+    const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw)
+    size += chunk.byteLength
+    if (size > MAX_JSON_BODY_BYTES) return null
+    chunks.push(chunk)
+  }
   if (chunks.length === 0) return {}
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
   } catch {
     return {}
   }
+}
+
+function requireJsonBody(
+  body: Record<string, unknown> | null,
+  response: ServerResponse,
+): body is Record<string, unknown> {
+  if (body !== null) return true
+  sendJson(response, 413, { error: 'request body too large' })
+  return false
 }
 
 function trustedRequest(request: IncomingMessage): boolean {
@@ -98,10 +142,8 @@ function requirePost(request: IncomingMessage, response: ServerResponse): boolea
   return true
 }
 
-function isNpmSpec(spec: string): boolean {
-  return /^(@[^/]+\/)?[\w.-]+$/.test(spec) && !spec.includes('/')
-    ? true
-    : /^@[^/]+\/[\w.-]+$/.test(spec)
+function isSafeBundleId(value: string): boolean {
+  return /^[A-Za-z0-9@._/-]{1,200}$/u.test(value)
 }
 
 function entryView(entry: RegistryEntry, state: ReturnType<typeof readOfficialState>) {
@@ -110,10 +152,12 @@ function entryView(entry: RegistryEntry, state: ReturnType<typeof readOfficialSt
   return {
     ...entry,
     full_name: fullName,
-    url: redirect ? `https://github.com/${fullName}` : entry.url,
+    url: redirect
+      ? `https://github.com/${fullName}`
+      : safeExternalUrl(entry.url, `https://github.com/${fullName}`),
     curated: CURATED.has(entry.full_name),
     installed: isInstalled(entry, state),
-    installSpec: installSpecOf(entry),
+    installSpec: installSpecOf({ ...entry, full_name: fullName }),
     type: detectType(entry),
     category: classify(entry),
   }
@@ -173,17 +217,39 @@ function installFileType(
   fullName: string,
   home: string | undefined,
 ): Promise<RunResult> {
+  if (!isGithubRepo(fullName)) {
+    return Promise.resolve({ code: 400, stdout: '', stderr: 'invalid GitHub repository' })
+  }
+  let tmp: string
+  try {
+    tmp = mkdtempSync(join(tmpdir(), `coeasy-${type}-`))
+  } catch (error) {
+    return Promise.resolve({ code: 1, stdout: '', stderr: `创建临时目录失败: ${String(error)}` })
+  }
   return new Promise((resolve) => {
-    const tmp = join(process.env.TEMP ?? '/tmp', `coeasy-${type}-${Date.now()}`)
     const child = spawn(
       'git',
       ['clone', '--depth', '1', `https://github.com/${fullName}.git`, tmp],
       { windowsHide: true },
     )
+    let settled = false
+    const finish = (result: RunResult): void => {
+      if (settled) return
+      settled = true
+      resolve(result)
+    }
+    const cleanup = (): void => rmSync(tmp, { recursive: true, force: true })
+    const timer = setTimeout(() => child.kill(), 120_000)
+    child.on('error', (error) => {
+      clearTimeout(timer)
+      cleanup()
+      finish({ code: 1, stdout: '', stderr: `git clone 失败: ${String(error)}` })
+    })
     child.on('close', (code) => {
+      clearTimeout(timer)
       if (code !== 0) {
-        rmSync(tmp, { recursive: true, force: true })
-        return resolve({ code: code ?? 1, stdout: '', stderr: `git clone 失败 (${code})` })
+        cleanup()
+        return finish({ code: code ?? 1, stdout: '', stderr: `git clone 失败 (${code})` })
       }
       const homeDir = dshHomeOf(home)
       const targetRoot =
@@ -193,11 +259,11 @@ function installFileType(
         mkdirSync(targetRoot, { recursive: true })
         rmSync(target, { recursive: true, force: true })
         cpSync(tmp, target, { recursive: true })
-        rmSync(tmp, { recursive: true, force: true })
-        resolve({ code: 0, stdout: `installed ${type} → ${target}`, stderr: '' })
+        cleanup()
+        finish({ code: 0, stdout: `installed ${type} → ${target}`, stderr: '' })
       } catch (e) {
-        rmSync(tmp, { recursive: true, force: true })
-        resolve({ code: 1, stdout: '', stderr: `install 失败: ${String(e)}` })
+        cleanup()
+        finish({ code: 1, stdout: '', stderr: `install 失败: ${String(e)}` })
       }
     })
   })
@@ -308,14 +374,19 @@ export function apply(ctx: Context, config: Config = {}): void {
             return
           }
           const body = await readJsonBody(request)
+          if (!requireJsonBody(body, response)) return
           const spec = typeof body.spec === 'string' ? body.spec.trim() : ''
           const type = typeof body.type === 'string' ? body.type : 'cordis'
-          if (spec === '' || /[;&|`$><\n]/.test(spec)) {
+          if (!['cordis', 'skill', 'preset'].includes(type) || !isInstallSpec(spec)) {
             sendJson(response, 400, { error: 'invalid spec' })
             return
           }
           if (type === 'skill' || type === 'preset') {
             const repo = spec.replace(/^github:/, '')
+            if (!isGithubRepo(repo)) {
+              sendJson(response, 400, { error: 'skill/preset requires github:owner/repo' })
+              return
+            }
             const result = await installFileType(type as 'skill' | 'preset', repo, home)
             return sendJson(response, result.code === 0 ? 200 : 500, {
               ok: result.code === 0,
@@ -374,8 +445,9 @@ export function apply(ctx: Context, config: Config = {}): void {
             return
           }
           const body = await readJsonBody(request)
+          if (!requireJsonBody(body, response)) return
           const pkg = typeof body.pkg === 'string' ? body.pkg.trim() : ''
-          if (pkg === '' || !/^[@\w./-]+$/.test(pkg)) {
+          if (!isNpmSpec(pkg)) {
             sendJson(response, 400, { error: 'invalid package' })
             return
           }
@@ -399,8 +471,9 @@ export function apply(ctx: Context, config: Config = {}): void {
             return
           }
           const body = await readJsonBody(request)
+          if (!requireJsonBody(body, response)) return
           const spec = typeof body.spec === 'string' ? body.spec.trim() : ''
-          if (spec === '') {
+          if (!isInstallSpec(spec)) {
             sendJson(response, 400, { error: 'invalid spec' })
             return
           }
@@ -424,9 +497,10 @@ export function apply(ctx: Context, config: Config = {}): void {
             return
           }
           const body = await readJsonBody(request)
+          if (!requireJsonBody(body, response)) return
           const bundleId = typeof body.id === 'string' ? body.id : ''
           const disabled = Boolean(body.disabled)
-          if (bundleId === '') {
+          if (!isSafeBundleId(bundleId)) {
             sendJson(response, 400, { error: 'invalid id' })
             return
           }
@@ -478,6 +552,7 @@ export function apply(ctx: Context, config: Config = {}): void {
             return
           }
           const body = await readJsonBody(request)
+          if (!requireJsonBody(body, response)) return
           const spec = typeof body.spec === 'string' ? body.spec.trim() : ''
           const fullName = typeof body.full_name === 'string' ? body.full_name : null
           if (spec === '' || !isNpmSpec(spec)) {
@@ -513,8 +588,9 @@ export function apply(ctx: Context, config: Config = {}): void {
             return
           }
           const body = await readJsonBody(request)
+          if (!requireJsonBody(body, response)) return
           const backup = body.backup as BackupFile | undefined
-          if (!backup || backup.format !== BACKUP_FORMAT) {
+          if (!backup || backup.format !== BACKUP_FORMAT || backup.version !== BACKUP_VERSION) {
             sendJson(response, 400, { error: 'invalid backup format' })
             return
           }

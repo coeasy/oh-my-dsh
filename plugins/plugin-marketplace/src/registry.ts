@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export type PluginType = 'cordis' | 'skill' | 'preset' | 'unknown'
@@ -82,6 +82,28 @@ const CATEGORY_RULES: Array<[string, string[]]> = [
 ]
 export const CATEGORIES: string[] = ['全部', ...CATEGORY_RULES.map(([c]) => c), '其他']
 
+/** Only accept GitHub owner/repository identifiers from remote catalogs. */
+export function isGithubRepo(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(
+    String(value || ''),
+  )
+}
+
+/** Profile names become directory names under the DSH home. */
+export function isSafeProfileName(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(String(value || ''))
+}
+
+/** Catalog URLs are untrusted remote metadata; only HTTPS links reach the UI. */
+export function safeExternalUrl(value: string, fallback: string): string {
+  try {
+    const parsed = new URL(String(value || ''))
+    return parsed.protocol === 'https:' ? parsed.href : fallback
+  } catch {
+    return fallback
+  }
+}
+
 export function classify(entry: RegistryEntry): string {
   const text =
     `${entry.description} ${(entry.topics ?? []).join(' ')} ${(entry.market_tags ?? []).join(' ')}`.toLowerCase()
@@ -133,7 +155,16 @@ export function dshHomeOf(configured?: string): string {
  * harness home (default ~/.dsh, overridable via $DSH_HOME or `configured`).
  */
 export function profileDirOf(profile: string, configured?: string): string {
-  return join(dshHomeOf(configured), 'profiles', profile)
+  if (!isSafeProfileName(profile)) {
+    throw new Error(`invalid profile name: ${profile}`)
+  }
+  const root = dshHomeOf(configured)
+  const dir = resolve(root, 'profiles', profile)
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`
+  if (!dir.startsWith(prefix)) {
+    throw new Error(`profile path escapes DSH home: ${profile}`)
+  }
+  return dir
 }
 
 export interface OfficialState {
@@ -193,7 +224,12 @@ export async function refreshFromGitHub(token?: string): Promise<RegistryEntry[]
     const body = (await res.json()) as { items?: Array<Record<string, unknown>> }
     if (!Array.isArray(body.items)) return null
     return body.items
-      .filter((it) => typeof it.full_name === 'string' && !EXCLUDED.has(it.full_name as string))
+      .filter(
+        (it) =>
+          typeof it.full_name === 'string' &&
+          isGithubRepo(it.full_name) &&
+          !EXCLUDED.has(it.full_name as string),
+      )
       .map((it) => ({
         name: String(it.name ?? ''),
         full_name: String(it.full_name),
@@ -216,6 +252,13 @@ export async function refreshFromGitHub(token?: string): Promise<RegistryEntry[]
 
 /** Fetch README fragment for a repo (best-effort, raw.githubusercontent). */
 export async function fetchReadme(fullName: string, branch = 'main'): Promise<string | null> {
+  if (
+    !isGithubRepo(fullName) ||
+    !/^[A-Za-z0-9._/-]{1,100}$/u.test(branch) ||
+    branch.includes('..')
+  ) {
+    return null
+  }
   try {
     const res = await fetch(`https://raw.githubusercontent.com/${fullName}/${branch}/README.md`, {
       signal: AbortSignal.timeout(10_000),

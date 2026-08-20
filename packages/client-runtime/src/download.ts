@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Readable, Transform, type Writable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -25,6 +25,9 @@ export interface DownloadRuntimeInput {
   cacheDir: string
   fetchImpl?: typeof fetch
   exists?: (path: string) => boolean
+  readFile?: (path: string) => Uint8Array
+  removeFile?: (path: string) => void
+  renameFile?: (from: string, to: string) => void
   writeFile?: (path: string, data: Uint8Array) => void
   mkdir?: (path: string) => void
   /** Streamed sink; when provided the payload is piped without full buffering. */
@@ -73,7 +76,22 @@ export async function ensureDownloadedRuntime(input: DownloadRuntimeInput): Prom
     throw new Error(`DSH_RUNTIME=download: cache dest escapes cacheDir: ${dest}`)
   }
   const exists = input.exists ?? existsSync
-  if (exists(dest)) return dest
+  const removeFile = input.removeFile ?? ((path: string) => rmSync(path, { force: true }))
+  const readFile = input.readFile ?? ((path: string) => readFileSync(path))
+  const expected = input.sha256 ? String(input.sha256).trim().toLowerCase() : undefined
+  if (expected && !/^[0-9a-f]{64}$/u.test(expected)) {
+    throw new Error(`DSH_RUNTIME=download: invalid sha256: ${input.sha256}`)
+  }
+  if (exists(dest)) {
+    if (!expected) return dest
+    try {
+      const actual = createHash('sha256').update(readFile(dest)).digest('hex')
+      if (actual === expected) return dest
+    } catch {
+      // A missing or unreadable cache entry is treated like a cache miss.
+    }
+    removeFile(dest)
+  }
   const url = String(input.url || '').trim()
   if (!url) {
     throw new Error(`DSH_RUNTIME=download: cache miss at ${dest} and DSH_RUNTIME_URL is unset`)
@@ -86,29 +104,40 @@ export async function ensureDownloadedRuntime(input: DownloadRuntimeInput): Prom
   if (!res.ok) {
     throw new Error(`DSH_RUNTIME=download: HTTP ${res.status} fetching ${url}`)
   }
-  const expected = input.sha256 ? String(input.sha256).trim().toLowerCase() : undefined
   const mkdir = input.mkdir ?? ((p: string) => mkdirSync(p, { recursive: true }))
   mkdir(dirname(dest))
 
   let received = 0
   if (input.openWriteStream) {
-    // Streamed path: hash per chunk, never hold the payload in memory.
-    const hash = createHash('sha256')
-    const source = Readable.fromWeb((res.body ?? new Response('').body) as never)
-    const tally = new Transform({
-      transform(chunk: Buffer, _enc, callback) {
-        received += chunk.length
-        hash.update(chunk)
-        callback(null, chunk)
-      },
-    })
-    const sink = input.openWriteStream(dest)
-    await pipeline(source, tally, sink)
-    const streamed = hash.digest('hex')
-    if (expected && streamed !== expected) {
-      throw new Error(
-        `DSH_RUNTIME=download: sha256 mismatch for ${url} (expected ${expected}, got ${streamed})`,
-      )
+    // Streamed path: hash per chunk, never hold the payload in memory. Write
+    // to a sidecar first so a killed or corrupt download can never look like
+    // a valid cache hit on the next launch.
+    const partial = `${dest}.part`
+    removeFile(partial)
+    try {
+      const hash = createHash('sha256')
+      const source = Readable.fromWeb((res.body ?? new Response('').body) as never)
+      const tally = new Transform({
+        transform(chunk: Buffer, _enc, callback) {
+          received += chunk.length
+          hash.update(chunk)
+          callback(null, chunk)
+        },
+      })
+      const sink = input.openWriteStream(partial)
+      await pipeline(source, tally, sink)
+      const streamed = hash.digest('hex')
+      if (expected && streamed !== expected) {
+        throw new Error(
+          `DSH_RUNTIME=download: sha256 mismatch for ${url} (expected ${expected}, got ${streamed})`,
+        )
+      }
+      const renameFile = input.renameFile ?? renameSync
+      renameFile(partial, dest)
+    } catch (error) {
+      removeFile(partial)
+      removeFile(dest)
+      throw error
     }
     input.onProgress?.('downloaded', received)
     return dest

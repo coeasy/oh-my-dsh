@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
-import { childEnv, installSpecOf } from '../src/install.ts'
+import { childEnv, installSpecOf, isInstallSpec, isNpmSpec } from '../src/install.ts'
 
 describe('installSpecOf', () => {
   it('uses the npm package name when published', () => {
@@ -35,5 +35,16 @@ describe('childEnv', () => {
   it('does not inject DSH_HOME when no home is provided', () => {
     const env = childEnv()
     assert.equal(env.DSH_HOME, undefined)
+  })
+})
+
+describe('install spec validation', () => {
+  it('accepts catalog package and github specs only', () => {
+    assert.equal(isNpmSpec('dsh-market'), true)
+    assert.equal(isNpmSpec('@scope/plugin-name'), true)
+    assert.equal(isInstallSpec('github:owner/repo'), true)
+    assert.equal(isInstallSpec('https://evil.example/payload'), false)
+    assert.equal(isInstallSpec('file:../../outside'), false)
+    assert.equal(isInstallSpec('--unsafe-option'), false)
   })
 })

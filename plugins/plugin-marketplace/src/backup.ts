@@ -15,7 +15,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { profileDirOf } from './registry.ts'
-import { runPluginCommand } from './install.ts'
+import { isNpmSpec, runPluginCommand } from './install.ts'
 
 export const BACKUP_FORMAT = 'coeasy-market-backup'
 export const BACKUP_VERSION = 1
@@ -89,15 +89,35 @@ export async function restoreBackup(
   home?: string,
 ): Promise<RestoreResult> {
   const result: RestoreResult = { ok: true, restored: [], failed: [], skipped: [] }
+  const rawDependencies = Array.isArray(backup.dependencies)
+    ? (backup.dependencies as unknown[])
+    : []
+  const rawBundles = Array.isArray(backup.bundles) ? (backup.bundles as unknown[]) : []
+  const dependencies = rawDependencies.filter(
+    (pkg): pkg is string => typeof pkg === 'string' && isNpmSpec(pkg),
+  )
+  const bundles = rawBundles.filter(
+    (pkg): pkg is string => typeof pkg === 'string' && isNpmSpec(pkg),
+  )
+  if (
+    dependencies.length !== rawDependencies.length ||
+    bundles.length !== rawBundles.length ||
+    dependencies.length > 200 ||
+    bundles.length > 200
+  ) {
+    result.ok = false
+    result.failed.push({ pkg: '<backup>', error: 'invalid or oversized package list' })
+    return result
+  }
   // Restore in bundle-first order so reconcile sees bundle members before
   // their deps; deps already in bundles are skipped (already coming back).
-  const bundleSet = new Set(backup.bundles ?? [])
-  const toRestore = [...(backup.bundles ?? []), ...(backup.dependencies ?? [])]
+  const bundleSet = new Set(bundles)
+  const toRestore = [...bundles, ...dependencies]
   const seen = new Set<string>()
   for (const pkg of toRestore) {
     if (pkg === '' || seen.has(pkg)) continue
     seen.add(pkg)
-    if (bundleSet.has(pkg) && !(backup.dependencies ?? []).includes(pkg)) {
+    if (bundleSet.has(pkg) && !dependencies.includes(pkg)) {
       result.skipped.push(pkg)
       continue
     }
