@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { ensureDownloadedRuntime } from '../src/download.ts'
 import { cachedBinaryPath } from '../src/resolve-runtime.ts'
 
+// The runtime functions use the host platform's path semantics; use a path that
+// is absolute on the running platform so the suite is portable across CI OSes.
+const cacheDir = join(tmpdir(), 'dsh-cache')
+
+function httpResponse(body: BodyInit, status: number): Response {
+  return new Response(body, { status })
+}
+
 describe('ensureDownloadedRuntime', () => {
   it('returns the cached path without fetching', async () => {
-    const cacheDir = 'C:\\cache\\dsh'
     const dest = await ensureDownloadedRuntime({
       url: 'https://example.invalid/dsh',
       cacheDir,
@@ -22,7 +31,7 @@ describe('ensureDownloadedRuntime', () => {
       () =>
         ensureDownloadedRuntime({
           url: '',
-          cacheDir: 'Z:\\missing',
+          cacheDir,
           exists: () => false,
         }),
       /DSH_RUNTIME_URL is unset/,
@@ -33,15 +42,15 @@ describe('ensureDownloadedRuntime', () => {
     const writes: Array<{ path: string; bytes: number }> = []
     const dest = await ensureDownloadedRuntime({
       url: 'https://example.test/dsh.bin',
-      cacheDir: 'C:\\cache\\dsh',
+      cacheDir,
       exists: () => false,
       mkdir: () => {},
       writeFile: (path, data) => {
         writes.push({ path, bytes: data.length })
       },
-      fetchImpl: async () => new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 }),
+      fetchImpl: async () => httpResponse(new Uint8Array([1, 2, 3, 4]), 200),
     })
-    assert.equal(dest, cachedBinaryPath('C:\\cache\\dsh'))
+    assert.equal(dest, cachedBinaryPath(cacheDir))
     assert.equal(writes.length, 1)
     assert.equal(writes[0].bytes, 4)
   })
@@ -51,9 +60,9 @@ describe('ensureDownloadedRuntime', () => {
       () =>
         ensureDownloadedRuntime({
           url: 'https://example.test/missing',
-          cacheDir: 'C:\\cache\\dsh',
+          cacheDir,
           exists: () => false,
-          fetchImpl: async () => new Response('nope', { status: 404 }),
+          fetchImpl: async () => httpResponse('nope', 404),
         }),
       /HTTP 404/,
     )
@@ -64,7 +73,7 @@ describe('ensureDownloadedRuntime', () => {
       () =>
         ensureDownloadedRuntime({
           url: 'http://example.test/dsh.bin',
-          cacheDir: 'C:\\cache\\dsh',
+          cacheDir,
           exists: () => false,
           fetchImpl: async () => {
             throw new Error('network should not run')

@@ -1,6 +1,6 @@
 import type { SpawnOptionsWithoutStdio } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 
 /**
  * Environment for the Harness child. Matches my-dsh: persist DSH_HOME
@@ -43,7 +43,9 @@ export function resolveSidecarDotEnvPath(
 ): string {
   const dir =
     portableExecutableDir && portableExecutableDir.length > 0 ? portableExecutableDir : exeDirectory
-  return join(dir, '.env')
+  // Portable SFX is a Windows concept; join with Windows semantics so the
+  // result is stable even when the test suite runs on POSIX hosts.
+  return win32.join(dir, '.env')
 }
 
 function fillBlankKeys(target: NodeJS.ProcessEnv, extra: Record<string, string>): void {

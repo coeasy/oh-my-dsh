@@ -1,5 +1,8 @@
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { posix, win32 } from 'node:path'
+
+const pathFor = (platform: NodeJS.Platform | undefined) =>
+  (platform ?? process.platform) === 'win32' ? win32 : posix
 
 export type RuntimeMode = 'local' | 'download'
 
@@ -35,14 +38,15 @@ export function resolveVscodeEngineLaunch(input: {
   if (input.production) return { mode: 'download' }
   const exists = input.exists ?? existsSync
   const platform = input.platform ?? process.platform
+  const join = pathFor(platform)
   const name = platform === 'win32' ? 'dsh.cmd' : 'dsh'
-  const staged = join(input.repoRoot, 'runtime', 'stage', name)
+  const staged = join.join(input.repoRoot, 'runtime', 'stage', name)
   if (exists(staged)) return { mode: 'bundled', dshCommand: staged }
-  const cloneBin = join(input.repoRoot, 'deepseek-harness', 'apps', 'cli', 'lib', 'bin.js')
+  const cloneBin = join.join(input.repoRoot, 'deepseek-harness', 'apps', 'cli', 'lib', 'bin.js')
   if (exists(cloneBin)) {
     return {
       mode: 'bundled',
-      dshCommand: join(input.repoRoot, 'runtime', 'dev', name),
+      dshCommand: join.join(input.repoRoot, 'runtime', 'dev', name),
       cloneBin,
     }
   }
