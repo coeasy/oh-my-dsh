@@ -65,6 +65,10 @@ jobs:
     name: publish GitHub release
     needs: release
     runs-on: ubuntu-latest
+    env:
+      # actions/download-artifact currently reaches a deprecated Buffer path
+      # under Node 24; keep that upstream runtime noise out of release logs.
+      NODE_OPTIONS: --no-deprecation
     permissions:
       contents: write
     steps:
@@ -88,6 +92,9 @@ jobs:
           generate_release_notes: true
           draft: true
           prerelease: false
+          # Every manual run uses a fresh tag, so concurrent asset metadata
+          # updates are unnecessary and can race inside the release action.
+          overwrite_files: false
           # download-artifact also restores the unpacked Electron app trees.
           # Upload only distributable files; dist/** would publish app.asar,
           # Chromium internals, and thousands of implementation files.
