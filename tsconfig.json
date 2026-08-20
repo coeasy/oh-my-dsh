@@ -35,6 +35,7 @@
     "apps/desktop/out",
     "apps/vscode/out",
     "tests/generated",
-    "src/generated"
+    "src/generated",
+    "plugins/**/tsdown.config.ts"
   ]
 }

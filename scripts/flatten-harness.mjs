@@ -12,6 +12,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   readlinkSync,
   realpathSync,
@@ -279,6 +280,59 @@ function collectPackages(root, exclude) {
 }
 
 /**
+ * Compute the runtime dependency closure of the dsh CLI: start from
+ * `apps/cli/package.json` `dependencies` and walk every transitive
+ * `dependencies` field. Anything outside this set is build/test/lint/docs
+ * tooling (or an optional, not-instantiated integration) and is skipped.
+ *
+ * Returns `null` when the CLI manifest is missing (minimal trees, test
+ * fixtures) — callers then keep the legacy behavior of materializing every
+ * discovered package instead of pruning to an empty set.
+ *
+ * @param {string} root - harness clone root (contains apps/cli/package.json)
+ * @param {Map<string, string>} packages - package name → real path (from collectPackages)
+ * @returns {Set<string> | null}
+ */
+function computeRuntimeClosure(root, packages) {
+  const closure = new Set()
+  let cliDeps = {}
+  try {
+    cliDeps = JSON.parse(readFileSync(join(root, 'apps', 'cli', 'package.json'), 'utf8'))
+      .dependencies || {}
+  } catch {
+    /* missing manifest → cannot compute a closure; prune nothing */
+    return null
+  }
+  const queue = Object.keys(cliDeps)
+  while (queue.length > 0) {
+    const name = queue.shift()
+    if (closure.has(name)) continue
+    closure.add(name)
+    const real = packages.get(name)
+    if (!real) continue
+    let pkg
+    try {
+      pkg = JSON.parse(readFileSync(join(real, 'package.json'), 'utf8'))
+    } catch {
+      continue
+    }
+    // Walk dependencies + peerDependencies + optionalDependencies: cordis
+    // plugins are wired through peerDependencies (e.g. dsh-app-boot peers on
+    // cordis-plugin-group/-loader), so those are runtime-required even though
+    // they are not in `dependencies`.
+    const allDeps = {
+      ...(pkg.dependencies || {}),
+      ...(pkg.peerDependencies || {}),
+      ...(pkg.optionalDependencies || {}),
+    }
+    for (const dep of Object.keys(allDeps)) {
+      if (!closure.has(dep)) queue.push(dep)
+    }
+  }
+  return closure
+}
+
+/**
  * @param {string} src
  * @param {string} dest
  * @param {{ force?: boolean, extraXd?: string[], onProgress?: (files: number, path: string) => void }} [opts]
@@ -315,13 +369,29 @@ export function flattenHarness(src, dest, opts = {}) {
   copyTree(src, dest, exclude, onFile)
 
   const packages = collectPackages(src, exclude)
+  const closure = computeRuntimeClosure(src, packages)
   const hoistRoot = existsSync(join(dest, 'apps', 'cli'))
     ? join(dest, 'apps', 'cli', 'node_modules')
     : join(dest, 'node_modules')
   mkdirSync(hoistRoot, { recursive: true })
+  let materialized = 0
+  let pruned = 0
   for (const [rel, real] of packages) {
+    // Only materialize the runtime dependency closure (apps/cli dependencies +
+    // their transitive `dependencies`). This drops build/test/lint/docs tools
+    // (typescript, @rolldown, @oxlint, mermaid/vitepress, …) that the CLI never
+    // imports at runtime — the single biggest win for installer size.
+    // `closure === null` (no CLI manifest) keeps the legacy full hoist.
+    if (closure && !closure.has(rel)) {
+      pruned += 1
+      continue
+    }
+    materialized += 1
     copyPackageFiles(real, join(hoistRoot, ...rel.split('/')), onFile)
   }
+  console.log(
+    `flatten: materialized ${materialized} runtime packages, pruned ${pruned} dev-only packages`,
+  )
 
   return stale ? { skipped: false, dest, stale, files } : { skipped: false, dest, files }
 }

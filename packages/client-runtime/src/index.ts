@@ -16,6 +16,7 @@ export {
   shutdownLadder,
   killProcessTree,
   killExecutable,
+  killMatchingProcesses,
   sameExecutablePath,
   engineStopPlan,
 } from './shutdown.ts'
@@ -28,4 +29,4 @@ export {
   writeDevLauncher,
 } from './launcher-check.ts'
 export type { DirectSpawn } from './launcher-check.ts'
-export type { LaunchOptions, ReadyPayload, RunningHost, RuntimeMode } from './types.ts'
+export type { LaunchOptions, LaunchStage, ReadyPayload, RunningHost, RuntimeMode } from './types.ts'

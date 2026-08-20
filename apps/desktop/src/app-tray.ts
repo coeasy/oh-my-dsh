@@ -14,6 +14,7 @@ export function createStatusTray(input: {
   locale: 'en' | 'zh'
   snapshot: RuntimeSnapshot
   onShow: () => void
+  onMarket: () => void
   onRestart: () => void
   onQuit: () => void
 }): StatusTray | undefined {
@@ -25,6 +26,7 @@ export function createStatusTray(input: {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: labels.show, click: () => input.onShow() },
+      { label: labels.market, click: () => input.onMarket() },
       { label: labels.restart, click: () => input.onRestart() },
       { type: 'separator' },
       { label: labels.quit, click: () => input.onQuit() },

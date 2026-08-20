@@ -56,3 +56,6 @@ scripts/_cleanup_stage.py
 scripts/_del_pnpm.sh
 .rundata/
 output/
+
+# plugin-marketplace build output (client bundle; built by compile:desktop)
+plugins/plugin-marketplace/client/

@@ -1,5 +1,7 @@
 # Changelog
 
+> 简体中文版见 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。Simplified Chinese: [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
+
 ## 0.1.0
 
 Unofficial VS Code / Cursor VSIX and Electron shell around `dsh web`. Product version is **0.1.0** for every workspace package; do not bump a single app to 0.2.0.

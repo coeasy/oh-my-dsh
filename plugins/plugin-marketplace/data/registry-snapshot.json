@@ -1,0 +1,1160 @@
+{
+ "generated_at": "2026-08-19T01:35:27.576Z",
+ "count": 60,
+ "source": "partial-merge",
+ "repos": [
+  {
+   "name": "open-design",
+   "full_name": "nexu-io/open-design",
+   "description": "🎨 Best DeepSeek Harness Design Plugin. The open-source Claude Design alternative. 🖥️ Local-first desktop app. 🖼️ Your coding agent becomes the design engine: prototypes, landing pages, dashboards, ",
+   "url": "https://github.com/nexu-io/open-design",
+   "stars": 88909,
+   "updated_at": "2026-08-19T01:25:28Z",
+   "topics": [
+    "agent-skills",
+    "ai-design",
+    "byok",
+    "claude-code-for-design",
+    "claude-design",
+    "codex-design"
+   ],
+   "license": "Apache-2.0",
+   "pkg_name": "open-design",
+   "market_tags": [
+    "prereq"
+   ]
+  },
+  {
+   "name": "reactive-resume",
+   "full_name": "amruthpillai/reactive-resume",
+   "description": "A one-of-a-kind resume builder that keeps your privacy in mind. Completely secure, customizable, portable, open-source and free forever. Try it out today!",
+   "url": "https://github.com/amruthpillai/reactive-resume",
+   "stars": 41014,
+   "updated_at": "2026-08-19T01:26:21Z",
+   "topics": [
+    "agent-skills",
+    "ai",
+    "dsh-plugin",
+    "hacktoberfest",
+    "javascript",
+    "mcp-server"
+   ],
+   "license": "MIT",
+   "pkg_name": "reactive-resume",
+   "market_tags": []
+  },
+  {
+   "name": "DeepSeek-Reasonix",
+   "full_name": "esengine/DeepSeek-Reasonix",
+   "description": "DeepSeek-native AI coding agent for your terminal. Engineered around prefix-cache stability — leave it running.",
+   "url": "https://github.com/esengine/DeepSeek-Reasonix",
+   "stars": 34780,
+   "updated_at": "2026-08-19T01:24:28Z",
+   "topics": [
+    "agent",
+    "agent-framework",
+    "ai-agent",
+    "ai-coding",
+    "cli",
+    "coding-agent"
+   ],
+   "license": "MIT",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "OpenViking",
+   "full_name": "volcengine/OpenViking",
+   "description": "Self-evolving Context Database for AI Agents. Unify Agent Memory, Knowledge RAG and Skills.",
+   "url": "https://github.com/volcengine/OpenViking",
+   "stars": 29400,
+   "updated_at": "2026-08-19T01:26:07Z",
+   "topics": [
+    "agent-memory",
+    "agent-plugins",
+    "agentic-rag",
+    "context-database",
+    "dsh-plugin",
+    "self-evolving"
+   ],
+   "license": "AGPL-3.0",
+   "pkg_name": null,
+   "market_tags": [
+    "community-pick"
+   ]
+  },
+  {
+   "name": "colleague-skill",
+   "full_name": "titanwings/colleague-skill",
+   "description": "将冰冷的离别化为温暖的 Skill，欢迎加入数字生命1.0！Transforming cold farewells into warm skills? It's giving rebirth era. Welcome to Digital Life 1.0. 🫶",
+   "url": "https://github.com/titanwings/colleague-skill",
+   "stars": 23391,
+   "updated_at": "2026-08-19T01:07:13Z",
+   "topics": [
+    "agent-skills",
+    "agentic-ai",
+    "ai-agent",
+    "ai-persona",
+    "claude-code",
+    "claude-code-skills"
+   ],
+   "license": "MIT",
+   "pkg_name": null,
+   "market_tags": [
+    "verified-install"
+   ]
+  },
+  {
+   "name": "voyager",
+   "full_name": "Nagi-ovo/voyager",
+   "description": "Enhancement suite for Gemini, AI Studio, Claude & ChatGPT — plus a prompt manager for any web UI, DeepSeek Harness included. / 面向 Gemini、AI Studio、Claude 与 ChatGPT 的增强套件；提示词管理器可用于任意 Web UI，含 DeepSeek ",
+   "url": "https://github.com/Nagi-ovo/voyager",
+   "stars": 19650,
+   "updated_at": "2026-08-19T00:48:59Z",
+   "topics": [
+    "ai-studio",
+    "browser-extension",
+    "bun",
+    "chat-management",
+    "chatgpt",
+    "chrome-extension"
+   ],
+   "license": "GPL-3.0",
+   "pkg_name": "voyager",
+   "market_tags": []
+  },
+  {
+   "name": "archify",
+   "full_name": "tt-a1i/archify",
+   "description": "Agent skill for beautiful, verifiable architecture, workflow, sequence, data-flow, and lifecycle diagrams—self-contained HTML with motion and crisp export.",
+   "url": "https://github.com/tt-a1i/archify",
+   "stars": 14227,
+   "updated_at": "2026-08-19T01:26:42Z",
+   "topics": [
+    "agent-skills",
+    "architecture-as-code",
+    "architecture-diagram",
+    "claude-skill",
+    "code-visualization",
+    "codex"
+   ],
+   "license": "MIT",
+   "pkg_name": null,
+   "market_tags": [
+    "verified-install",
+    "community-pick"
+   ]
+  },
+  {
+   "name": "deepseek-harness-desktop",
+   "full_name": "anywhere-labs/deepseek-harness-desktop",
+   "description": "为 DeepSeek Harness (DSH) 插件生态打造的现代化桌面端解决方案。万物皆「插件」，桌面本身也是「插件」。",
+   "url": "https://github.com/anywhere-labs/deepseek-harness-desktop",
+   "stars": 13667,
+   "updated_at": "2026-08-19T01:26:34Z",
+   "topics": [
+    "cordis",
+    "cordis-plugin",
+    "deepseek",
+    "deepseek-harness",
+    "desktop",
+    "dsh"
+   ],
+   "license": "MIT",
+   "pkg_name": "deepseek-harness-desktop",
+   "market_tags": []
+  },
+  {
+   "name": "EverOS",
+   "full_name": "EverMind-AI/EverOS",
+   "description": "One portable memory layer for every AI agent: local-first, Markdown-native, user-owned, and self-evolving across apps, tools, and workflows.",
+   "url": "https://github.com/EverMind-AI/EverOS",
+   "stars": 12141,
+   "updated_at": "2026-08-19T00:18:37Z",
+   "topics": [
+    "agent-memory",
+    "agentic-ai",
+    "ai",
+    "chats",
+    "clawdbot",
+    "clawdbot-skill"
+   ],
+   "license": "Apache-2.0",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "learn-harness-engineering",
+   "full_name": "walkinglabs/learn-harness-engineering",
+   "description": "Harness engineering beginner tutorial, from 0 to 1",
+   "url": "https://github.com/walkinglabs/learn-harness-engineering",
+   "stars": 11899,
+   "updated_at": "2026-08-18T04:28:28Z",
+   "topics": [
+    "agent",
+    "agentic",
+    "agentic-ai",
+    "ai",
+    "ai-agent",
+    "dsh"
+   ],
+   "license": "MIT",
+   "pkg_name": "learn-harness-engineering",
+   "market_tags": []
+  },
+  {
+   "name": "awesome-gpt-image-2",
+   "full_name": "freestylefly/awesome-gpt-image-2",
+   "description": "Prompt as Code | GPT-Image2 工业级提示词引擎与模板库，470+ 个案例逆向工程，20+ 套工业级模板，并提炼出Skills，持续更新中",
+   "url": "https://github.com/freestylefly/awesome-gpt-image-2",
+   "stars": 11154,
+   "updated_at": "2026-08-18T04:31:56Z",
+   "topics": [
+    "agents",
+    "ai-image-generation",
+    "chatgpt",
+    "dsh-plugin",
+    "gpt-image-2",
+    "image-prompts"
+   ],
+   "license": "MIT",
+   "pkg_name": "awesome-gpt-image-2-site",
+   "market_tags": []
+  },
+  {
+   "name": "awesome-dsh-plugin",
+   "full_name": "awesome-dsh-plugin/awesome-dsh-plugin",
+   "description": "A curated list of plugins for DeepSeek Harness (dsh) · DeepSeek Harness 插件精选列表",
+   "url": "https://github.com/awesome-dsh-plugin/awesome-dsh-plugin",
+   "stars": 8944,
+   "updated_at": "2026-08-19T01:26:41Z",
+   "topics": [
+    "awesome",
+    "awesome-list",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin"
+   ],
+   "license": "CC0-1.0",
+   "pkg_name": "awesome-dsh-plugin",
+   "market_tags": []
+  },
+  {
+   "name": "yao",
+   "full_name": "YaoApp/yao",
+   "description": "✨ All your agents and workspaces in one place, on every device you own. Track tasks on a board, accessible from desktop, mobile, browser, or API. Self-hosted.",
+   "url": "https://github.com/YaoApp/yao",
+   "stars": 7696,
+   "updated_at": "2026-08-19T01:14:11Z",
+   "topics": [
+    "agent-harness",
+    "agent-orchestration",
+    "agent-skills",
+    "agent-workspaces",
+    "ai-agents",
+    "ai-native"
+   ],
+   "license": "NOASSERTION",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "ouroboros",
+   "full_name": "Q00/ouroboros",
+   "description": "Agent OS: the agent gets smarter on its own. We just hold the line: the grading command and expected result never make it into the success contract we hand it. Interview-gated, staged evaluation, budg",
+   "url": "https://github.com/Q00/ouroboros",
+   "stars": 5555,
+   "updated_at": "2026-08-19T01:23:34Z",
+   "topics": [
+    "agent-os",
+    "agentic-ai",
+    "ai-agent",
+    "ai-coding-agent",
+    "claude-code",
+    "cli"
+   ],
+   "license": "MIT",
+   "pkg_name": null,
+   "market_tags": [
+    "community-pick"
+   ]
+  },
+  {
+   "name": "openpencil",
+   "full_name": "ZSeven-W/openpencil",
+   "description": "The world's first open-source AI-native vector design tool and the first to feature concurrent Agent Teams. Design-as-Code. Turn prompts into UI directly on the live canvas. A modern alternative to Pe",
+   "url": "https://github.com/ZSeven-W/openpencil",
+   "stars": 5340,
+   "updated_at": "2026-08-19T01:25:21Z",
+   "topics": [
+    "agent",
+    "agent-team",
+    "ai",
+    "claude",
+    "claude-code",
+    "codex"
+   ],
+   "license": "MIT",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "dsh-web-ui",
+   "full_name": "zhu1090093659/dsh-web-ui",
+   "description": "Plugin and skin collection for DeepSeek Harness (DSH) Web UI - task board, git graph, right-side panel, remote mobile UI, pet, live token stats, and skin center.",
+   "url": "https://github.com/zhu1090093659/dsh-web-ui",
+   "stars": 4584,
+   "updated_at": "2026-08-19T01:26:23Z",
+   "topics": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "web-ui"
+   ],
+   "license": "Apache-2.0",
+   "pkg_name": "dsh-web-ui",
+   "market_tags": [
+    "verified-install",
+    "community-pick"
+   ]
+  },
+  {
+   "name": "iPolloWork",
+   "full_name": "Devin-AXIS/iPolloWork",
+   "description": "A next-generation, source-available AI workspace with a self-evolving agent runtime for editable code, design, presentations, websites, and video—a Codex alternative that integrates DeepSeek Harness f",
+   "url": "https://github.com/Devin-AXIS/iPolloWork",
+   "stars": 4182,
+   "updated_at": "2026-08-19T01:24:50Z",
+   "topics": [
+    "agent-collaboration",
+    "agent-skills",
+    "ai-agents",
+    "ai-work",
+    "claude-code",
+    "codex"
+   ],
+   "license": "NOASSERTION",
+   "pkg_name": "@ipollo/ipollowork-workspace",
+   "market_tags": []
+  },
+  {
+   "name": "petdex",
+   "full_name": "crafter-station/petdex",
+   "description": "A public gallery of animated pets for Codex, Claude Code, DeepSeek Harness, Hermes, OpenCode, Gemini CLI, and more.",
+   "url": "https://github.com/crafter-station/petdex",
+   "stars": 3896,
+   "updated_at": "2026-08-19T00:52:08Z",
+   "topics": [
+    "claude-code",
+    "clerk",
+    "cli",
+    "codex",
+    "developer-tools",
+    "drizzle-orm"
+   ],
+   "license": "MIT",
+   "pkg_name": "petdex",
+   "market_tags": []
+  },
+  {
+   "name": "dsh-anchored-standard",
+   "full_name": "xiaobright/dsh-anchored-standard",
+   "description": "Two-phase DeepSeek Harness preset: Minimal-aligned bootstrap, then full Standard tools (Project2 98/99)",
+   "url": "https://github.com/xiaobright/dsh-anchored-standard",
+   "stars": 3561,
+   "updated_at": "2026-08-19T01:24:40Z",
+   "topics": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh-plugin",
+    "llm-agent"
+   ],
+   "license": "NOASSERTION",
+   "pkg_name": "dsh-anchored-standard",
+   "market_tags": [
+    "verified-install"
+   ]
+  },
+  {
+   "name": "mirage",
+   "full_name": "strukto-ai/mirage",
+   "description": "The World's First Unified Virtual Filesystem For AI Agents",
+   "url": "https://github.com/strukto-ai/mirage",
+   "stars": 3510,
+   "updated_at": "2026-08-19T01:24:27Z",
+   "topics": [
+    "agent-sandbox",
+    "agent-tools",
+    "ai-agents",
+    "bash",
+    "claude-code",
+    "dsh"
+   ],
+   "license": "Apache-2.0",
+   "pkg_name": null,
+   "market_tags": [
+    "community-pick"
+   ]
+  },
+  {
+   "name": "modlens",
+   "full_name": "liustack/modlens",
+   "description": "The first vision plugin for DeepSeek Harness, and the vision bridge for every text-only coding agent. Paste an image, get structured JSON evidence (OCR, layout, semantics). | 全网最强 DeepSeek Harness 外挂视",
+   "url": "https://github.com/liustack/modlens",
+   "stars": 3109,
+   "updated_at": "2026-08-19T01:19:41Z",
+   "topics": [
+    "agent-skills",
+    "claude-code",
+    "claude-skills",
+    "codex",
+    "cordis",
+    "deepseek"
+   ],
+   "license": "MIT",
+   "pkg_name": "@liustack/modlens",
+   "market_tags": [
+    "verified-install",
+    "community-pick"
+   ]
+  },
+  {
+   "name": "EchoBird",
+   "full_name": "edison7009/EchoBird",
+   "description": "One-click install + model switch:Claude Code,Codex CLI (OpenAI), Grok Build (xAI), DeepSeek Harness, Kimi Code (Moonshot) ,Qwen Code,Aider,OpenCode,MiMo Code (Xiaomi),ZCode (Z.AI),OpenClaw,Pi,OpenScie",
+   "url": "https://github.com/edison7009/EchoBird",
+   "stars": 3076,
+   "updated_at": "2026-08-18T22:51:41Z",
+   "topics": [
+    "claude-code",
+    "deepseek",
+    "deepseek-harness",
+    "dsh-plugin",
+    "dsh-plugins",
+    "kimi-code"
+   ],
+   "license": "MIT",
+   "pkg_name": "echobird",
+   "market_tags": []
+  },
+  {
+   "name": "OpenBiliClaw",
+   "full_name": "whiteguo233/OpenBiliClaw",
+   "description": "本地私有、开源的自进化跨平台 AI 内容发现 Agent：先理解你，再主动从 B站、小红书、抖音、YouTube、X、知乎、Reddit、微博等平台与开放 Web 寻找内容。（支持 deepseek harness 插件） | Local-first open-source cross-platform AI content discovery agent: understands you, th",
+   "url": "https://github.com/whiteguo233/OpenBiliClaw",
+   "stars": 2898,
+   "updated_at": "2026-08-18T22:19:49Z",
+   "topics": [
+    "ai-agent",
+    "bilibili",
+    "chrome-extension",
+    "content-discovery",
+    "cross-platform",
+    "deepseek-harness"
+   ],
+   "license": "MIT",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "Vibe-Skills",
+   "full_name": "foryourhealth111-pixel/Vibe-Skills",
+   "description": "VibeSkills is a general-purpose Skill that automatically routes local Skills and intelligently orchestrates harness workflows.",
+   "url": "https://github.com/foryourhealth111-pixel/Vibe-Skills",
+   "stars": 2880,
+   "updated_at": "2026-08-18T04:30:20Z",
+   "topics": [
+    "agent-framework",
+    "agent-skills",
+    "agentic-coding",
+    "ai-agents",
+    "ai-scientist",
+    "ai-skills"
+   ],
+   "license": "Apache-2.0",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "zhuzhiliao",
+   "full_name": "imsai-sh/zhuzhiliao",
+   "description": "竹知了 —— 一转就哇哇叫的传统玩具，Web 模拟版。零依赖单文件，真实录音采样，移动端优先。",
+   "url": "https://github.com/imsai-sh/zhuzhiliao",
+   "stars": 2831,
+   "updated_at": "2026-08-18T03:05:30Z",
+   "topics": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin"
+   ],
+   "license": "NOASSERTION",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "dashi-taskboard",
+   "full_name": "chuspeeism/dashi-taskboard",
+   "description": "",
+   "url": "https://github.com/chuspeeism/dashi-taskboard",
+   "stars": 2337,
+   "updated_at": "2026-08-19T01:24:33Z",
+   "topics": [
+    "claude-code",
+    "cli",
+    "codex",
+    "codex-app",
+    "codex-desktop",
+    "codex-plugin"
+   ],
+   "license": "Apache-2.0",
+   "pkg_name": "codex-taskboard",
+   "market_tags": []
+  },
+  {
+   "name": "J-Space-Cognition-Suite-V3.6",
+   "full_name": "Tiger3807861189/J-Space-Cognition-Suite-V3.6",
+   "description": "J-Space Cognition Suite V3.6 - AI cognitive-enhancement Skills based on Anthropic's J-space global workspace research. | 哔哩哔哩：Tiger380 (UID 3494375382321675) — https://space.bilibili.com/3494375382321",
+   "url": "https://github.com/Tiger3807861189/J-Space-Cognition-Suite-V3.6",
+   "stars": 2216,
+   "updated_at": "2026-08-19T01:25:54Z",
+   "topics": [
+    "agent-skills",
+    "ai",
+    "ai-agent",
+    "ai-agents",
+    "claude-code",
+    "codex"
+   ],
+   "license": "Apache-2.0",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "DSH-better-sidebar",
+   "full_name": "omdsh-dev/DSH-better-sidebar",
+   "description": "开放的侧边栏底座，支持三方拓展注册新侧边栏页面。内置文件渲染编辑/终端/Git/子代理页面 ｜ Open sidebar foundation, supports third-party extensions to register new sidebar pages. Built-in file rendering/editing, terminal, Git, and sub-agent pa",
+   "url": "https://github.com/omdsh-dev/DSH-better-sidebar",
+   "stars": 2180,
+   "updated_at": "2026-08-19T01:24:37Z",
+   "topics": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-better-sidebar",
+    "dsh-plugin",
+    "sidebar"
+   ],
+   "license": "MIT",
+   "pkg_name": "dsh-better-sidebar",
+   "market_tags": [
+    "community-pick"
+   ]
+  },
+  {
+   "name": "dsh-TUI",
+   "full_name": "ccch1mneyyy/dsh-TUI",
+   "description": "DSH 官方公众号收录的 TUI 补位插件：Claude Code 风，鲸鱼顶栏/实时状态/流式思考/双击 Esc 回滚/上下文进度+TPS。npm 一键装。  DSH official WeChat featured TUI plugin — Claude Code style: whale bar, live status, streaming thoughts, double-Esc rol",
+   "url": "https://github.com/ccch1mneyyy/dsh-TUI",
+   "stars": 1979,
+   "updated_at": "2026-08-19T01:17:54Z",
+   "topics": [
+    "claude-code",
+    "coding-agent",
+    "deepseek",
+    "deepseek-harness",
+    "dsh-plugin",
+    "ink"
+   ],
+   "license": "MIT",
+   "pkg_name": "@deepseek-harness-tui/dsh-tui",
+   "market_tags": [
+    "community-pick"
+   ]
+  },
+  {
+   "name": "BitFun",
+   "full_name": "GCWing/BitFun",
+   "description": "BitFun combines a high-performance agent runtime written in Rust with a polished desktop application. It pairs the depth of a Code Agent with open, general-purpose capabilities for work beyond softwar",
+   "url": "https://github.com/GCWing/BitFun",
+   "stars": 1788,
+   "updated_at": "2026-08-18T23:57:08Z",
+   "topics": [
+    "agent-teams",
+    "agentic",
+    "agentic-os",
+    "agentic-runtime",
+    "ai-coding",
+    "ai-ide"
+   ],
+   "license": "MIT",
+   "pkg_name": "BitFun",
+   "market_tags": []
+  },
+  {
+   "name": "last30days-skill-cn",
+   "full_name": "Jesseovo/last30days-skill-cn",
+   "description": "last30days-cn 是一个 AI Agent 技能（Skill），能够自动搜索中国互联网 8 大主流平台最近 30 天的内容，综合分析后生成有据可查的研究报告。",
+   "url": "https://github.com/Jesseovo/last30days-skill-cn",
+   "stars": 1421,
+   "updated_at": "2026-08-18T04:17:17Z",
+   "topics": [
+    "claude-code",
+    "dsh-plugin",
+    "openclaw",
+    "openclaw-skills",
+    "rednotebook",
+    "research"
+   ],
+   "license": "NOASSERTION",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "dsh-deep-whale",
+   "full_name": "Small-tailqwq/dsh-deep-whale",
+   "description": "DSH Web 鲸鱼娘皮肤系列(深海女仆工坊 maid-atelier)——CC BY-NC-SA 4.0",
+   "url": "https://github.com/Small-tailqwq/dsh-deep-whale",
+   "stars": 1382,
+   "updated_at": "2026-08-19T01:24:28Z",
+   "topics": [
+    "dsh",
+    "dsh-plugin"
+   ],
+   "license": null,
+   "pkg_name": null,
+   "market_tags": [
+    "verified-install",
+    "community-pick"
+   ]
+  },
+  {
+   "name": "brooks-lint",
+   "full_name": "hyhmrright/brooks-lint",
+   "description": "AI code reviews grounded in 12 classic engineering books — decay risk diagnostics with book citations, severity labels, and 6 analysis modes including full-sweep auto-fix",
+   "url": "https://github.com/hyhmrright/brooks-lint",
+   "stars": 1375,
+   "updated_at": "2026-08-18T03:08:37Z",
+   "topics": [
+    "agent-skills",
+    "ai-code-review",
+    "architecture-review",
+    "auto-fix",
+    "claude-code",
+    "claude-code-plugin"
+   ],
+   "license": "MIT",
+   "pkg_name": "brooks-lint",
+   "market_tags": []
+  },
+  {
+   "name": "vox-director",
+   "full_name": "Alisa0808/vox-director",
+   "description": "Turn one topic into a finished Vox-style paper-collage explainer/ad video — automated end to end on Atlas Cloud + ffmpeg. An agent skill.",
+   "url": "https://github.com/Alisa0808/vox-director",
+   "stars": 1346,
+   "updated_at": "2026-08-18T02:00:24Z",
+   "topics": [
+    "ai",
+    "ai-video",
+    "claude-code",
+    "claude-skill",
+    "collage-video",
+    "dsh-plugin"
+   ],
+   "license": "MIT",
+   "pkg_name": "vox-director",
+   "market_tags": []
+  },
+  {
+   "name": "awesome-dsh-plugins",
+   "full_name": "AdamPlatin123/awesome-dsh-plugins",
+   "description": "DSH 插件雷达与精选榜：多路自动发现 7600+ 候选，容器真实安装路径运行级实测（四档判定，883/1415 可用），精选 Top 50 · 11 类人工策展，全量索引 PLUGINS-ALL.md，自动更新。",
+   "url": "https://github.com/AdamPlatin123/awesome-dsh-plugins",
+   "stars": 1217,
+   "updated_at": "2026-08-19T01:26:04Z",
+   "topics": [
+    "agent-plugins",
+    "awesome-list",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "plugin-registry"
+   ],
+   "license": "MIT",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "BrowserSkill",
+   "full_name": "Tencent/BrowserSkill",
+   "description": "Let AI agents use your real, logged-in browser without interrupting your work. CLI + extension for browser automation across any shell-capable AI agent.",
+   "url": "https://github.com/Tencent/BrowserSkill",
+   "stars": 1149,
+   "updated_at": "2026-08-19T00:01:34Z",
+   "topics": [
+    "agent",
+    "browser-use",
+    "dsh-plugin"
+   ],
+   "license": "MIT",
+   "pkg_name": "browser-skill",
+   "market_tags": []
+  },
+  {
+   "name": "deeptide",
+   "full_name": "paean-ai/deeptide",
+   "description": "Built by DeepSeek, for DeepSeek — a Swift-native macOS coding agent",
+   "url": "https://github.com/paean-ai/deeptide",
+   "stars": 1079,
+   "updated_at": "2026-08-18T04:26:13Z",
+   "topics": [
+    "coding-agent",
+    "deepseek",
+    "deepseek-harness",
+    "dsh-plugin",
+    "macos",
+    "swift"
+   ],
+   "license": "MIT",
+   "pkg_name": "deeptide",
+   "market_tags": []
+  },
+  {
+   "name": "openpets",
+   "full_name": "alvinunreal/openpets",
+   "description": "Local first, desktop companion platform with animated pets, plugin SDK and coding-agent integrations.",
+   "url": "https://github.com/alvinunreal/openpets",
+   "stars": 1079,
+   "updated_at": "2026-08-19T00:49:48Z",
+   "topics": [
+    "ai-agents",
+    "claude-code",
+    "coding-agents",
+    "desktop-companion",
+    "desktop-pet",
+    "dsh-plugin"
+   ],
+   "license": "MIT",
+   "pkg_name": "openpets-v2-workspace",
+   "market_tags": []
+  },
+  {
+   "name": "agentrq",
+   "full_name": "agentrq/agentrq",
+   "description": "AgentRQ: Human-in-loop realtime conversational task manager for AI Agents. Self-hosted! Control your own agents from wherever you want Mobile, Web, Desktop. Designed to work well with your own Claude ",
+   "url": "https://github.com/agentrq/agentrq",
+   "stars": 1077,
+   "updated_at": "2026-08-18T17:23:02Z",
+   "topics": [
+    "acp-client",
+    "acp-gateway",
+    "agentic-ai",
+    "agentic-workflow",
+    "agents",
+    "claude-code"
+   ],
+   "license": "Apache-2.0",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "CloudBase-AI-Toolkit",
+   "full_name": "TencentCloudBase/CloudBase-AI-Toolkit",
+   "description": "Backend for AI coding agents on CloudBase — database, auth, functions via Plugin, Skills & MCP.",
+   "url": "https://github.com/TencentCloudBase/CloudBase-AI-Toolkit",
+   "stars": 1070,
+   "updated_at": "2026-08-18T20:54:53Z",
+   "topics": [
+    "agent-skills",
+    "ai",
+    "aicoding",
+    "claude-code",
+    "cloudbase",
+    "cursor"
+   ],
+   "license": "MIT",
+   "pkg_name": "cloudbase-ai-toolkit",
+   "market_tags": []
+  },
+  {
+   "name": "Aegis",
+   "full_name": "GanyuanRan/Aegis",
+   "description": "Make AI coding agents architecture-aware: baseline-first, evidence-verified, drift-checked, and safe across long tasks.",
+   "url": "https://github.com/GanyuanRan/Aegis",
+   "stars": 1060,
+   "updated_at": "2026-08-19T00:42:59Z",
+   "topics": [
+    "agent-skills",
+    "ai-agents",
+    "ai-coding",
+    "architecture-driven-development",
+    "awsome-coding-plugin",
+    "baseline-first"
+   ],
+   "license": "MIT",
+   "pkg_name": "aegis",
+   "market_tags": [
+    "community-pick"
+   ]
+  },
+  {
+   "name": "dsh-market",
+   "full_name": "dsh-market/dsh-market",
+   "description": "The plugin market inside DeepSeek Harness — browse, search, one-click install · DSH 可视化插件市场",
+   "url": "https://github.com/dsh-market/dsh-market",
+   "stars": 1054,
+   "updated_at": "2026-08-19T01:25:02Z",
+   "topics": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "marketplace"
+   ],
+   "license": "MIT",
+   "pkg_name": "dshmarket",
+   "market_tags": [
+    "verified-install",
+    "community-pick"
+   ]
+  },
+  {
+   "name": "agent-vision-toolkit",
+   "full_name": "Anionex/agent-vision-toolkit",
+   "description": "为纯文本模型\"看图“设计更好的视觉工具箱和技能，支持多图理解，图片问答，前端UI还原、GUI 自动化等，并可选无缝接入多个主流agent，直接识别粘贴图片｜ A vision toolkit and skill designed for text-only llms — image Q&A, long-screenshot OCR, frontend UI restoration, and GUI",
+   "url": "https://github.com/Anionex/agent-vision-toolkit",
+   "stars": 1043,
+   "updated_at": "2026-08-19T01:17:03Z",
+   "topics": [
+    "agent",
+    "agent-skills",
+    "claude-code",
+    "codex",
+    "computer-use",
+    "deepseek"
+   ],
+   "license": "MIT",
+   "pkg_name": null,
+   "market_tags": [
+    "verified-install"
+   ]
+  },
+  {
+   "name": "DeepSeek-V4-J-Space-Capability-Realization-Report",
+   "full_name": "Tiger3807861189/DeepSeek-V4-J-Space-Capability-Realization-Report",
+   "description": "DeepSeek V4 × J-Space capability realization report — benchmark evidence that J-Space reduces capability-realization loss on DeepSeek V4 (Flash/Pro).",
+   "url": "https://github.com/Tiger3807861189/DeepSeek-V4-J-Space-Capability-Realization-Report",
+   "stars": 999,
+   "updated_at": "2026-08-19T01:15:38Z",
+   "topics": [
+    "agent-skills",
+    "ai-agent",
+    "benchmark",
+    "deepseek",
+    "deepseek-harness",
+    "dsh"
+   ],
+   "license": "NOASSERTION",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "PicGo-Core",
+   "full_name": "PicGo/PicGo-Core",
+   "description": ":zap:The ultimate image uploading engine. Both CLI & API supports.",
+   "url": "https://github.com/PicGo/PicGo-Core",
+   "stars": 978,
+   "updated_at": "2026-08-18T06:38:52Z",
+   "topics": [
+    "dsh-plugin",
+    "picgo",
+    "picture-upload",
+    "upload-pictures"
+   ],
+   "license": "MIT",
+   "pkg_name": "picgo",
+   "market_tags": []
+  },
+  {
+   "name": "awesome-dsh-plugin",
+   "full_name": "Anil-matcha/awesome-dsh-plugin",
+   "description": "A curated list of plugins for DeepSeek Harness (dsh) - DeepSeek Harness plugin ecosystem",
+   "url": "https://github.com/Anil-matcha/awesome-dsh-plugin",
+   "stars": 941,
+   "updated_at": "2026-08-18T21:35:41Z",
+   "topics": [
+    "agent-harness",
+    "ai-agent",
+    "ai-agents",
+    "autonomous-agent",
+    "awesome",
+    "awesome-list"
+   ],
+   "license": null,
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "MindMemOS",
+   "full_name": "mindscale-noah/MindMemOS",
+   "description": "",
+   "url": "https://github.com/mindscale-noah/MindMemOS",
+   "stars": 938,
+   "updated_at": "2026-08-18T11:47:35Z",
+   "topics": [
+    "agent",
+    "agent-memory",
+    "agent-skills",
+    "agentic",
+    "dsh-plugin",
+    "dsh-plugins"
+   ],
+   "license": null,
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "awesome-deepseek-harness",
+   "full_name": "Anil-matcha/awesome-deepseek-harness",
+   "description": "Curated guide to DeepSeek Harness (dsh) and its best community plugins",
+   "url": "https://github.com/Anil-matcha/awesome-deepseek-harness",
+   "stars": 924,
+   "updated_at": "2026-08-17T13:22:56Z",
+   "topics": [
+    "agent-harness",
+    "ai-agent",
+    "ai-agents",
+    "autonomous-agent",
+    "awesome",
+    "awesome-list"
+   ],
+   "license": null,
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "agent-qa",
+   "full_name": "vostride/agent-qa",
+   "description": "Open-source self-improving QA agent for software teams. A test harness with memory. Write tests in natural language for web and mobile. agent-qa learns from every run, adapts to UI changes, and catche",
+   "url": "https://github.com/vostride/agent-qa",
+   "stars": 900,
+   "updated_at": "2026-08-18T04:24:30Z",
+   "topics": [
+    "ai-agents",
+    "ai-testing",
+    "anthropic",
+    "autonomous-agents",
+    "browser-automation",
+    "chatgpt"
+   ],
+   "license": "NOASSERTION",
+   "pkg_name": "agent-qa-monorepo",
+   "market_tags": []
+  },
+  {
+   "name": "wesight",
+   "full_name": "freestylefly/wesight",
+   "description": "Open-source desktop AI agent workspace with one-click Claude Code, Codex, OpenClaw, Hermes Agent setup and custom LLM model routing.",
+   "url": "https://github.com/freestylefly/wesight",
+   "stars": 883,
+   "updated_at": "2026-08-18T03:09:03Z",
+   "topics": [
+    "agent-skills",
+    "agent-workspace",
+    "ai-agent",
+    "ai-agents",
+    "claude-code",
+    "codex"
+   ],
+   "license": "MIT",
+   "pkg_name": "wesight",
+   "market_tags": []
+  },
+  {
+   "name": "tongflow",
+   "full_name": "tong-io/tongflow",
+   "description": "TongFlow — multimodal workflow studio and engine (canvas + Python plugin engine) and dsh-tongflow, the DeepSeek Harness studio plugin",
+   "url": "https://github.com/tong-io/tongflow",
+   "stars": 859,
+   "updated_at": "2026-08-19T01:02:50Z",
+   "topics": [
+    "3d",
+    "agent",
+    "ai",
+    "ai-tools",
+    "aigc",
+    "canvas"
+   ],
+   "license": "AGPL-3.0",
+   "pkg_name": "tongflow-app",
+   "market_tags": []
+  },
+  {
+   "name": "coding-tools-mcp",
+   "full_name": "xyTom/coding-tools-mcp",
+   "description": "Give any AI agent the ability to code",
+   "url": "https://github.com/xyTom/coding-tools-mcp",
+   "stars": 824,
+   "updated_at": "2026-08-19T01:20:30Z",
+   "topics": [
+    "dsh-plugin",
+    "mcp",
+    "mcp-server"
+   ],
+   "license": "Apache-2.0",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "api-relay-audit",
+   "full_name": "toby-bridges/api-relay-audit",
+   "description": "Local security audit for AI API relays and LLM proxies: detects prompt injection, model substitution, tool-call rewriting, SSE anomalies, error leakage, and Web3 wallet risks.",
+   "url": "https://github.com/toby-bridges/api-relay-audit",
+   "stars": 791,
+   "updated_at": "2026-08-18T07:11:25Z",
+   "topics": [
+    "ai-agents",
+    "ai-audit",
+    "ai-security",
+    "anthropic",
+    "api-gateway",
+    "claude"
+   ],
+   "license": "AGPL-3.0",
+   "pkg_name": "dsh-api-relay-audit",
+   "market_tags": [
+    "community-pick"
+   ]
+  },
+  {
+   "name": "dsh-vision-router",
+   "full_name": "ysr666/dsh-vision-router",
+   "description": "Eyes for text-only DeepSeek Harness agents: built-in free vision chain (no key) + pixel-level vision tools (Q&A, grounding, crop, pixel diff, colors, OCR, SVG trace, cutout, screenshots). One-command ",
+   "url": "https://github.com/ysr666/dsh-vision-router",
+   "stars": 760,
+   "updated_at": "2026-08-19T01:14:20Z",
+   "topics": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "multimodal",
+    "vision"
+   ],
+   "license": "MIT",
+   "pkg_name": "dsh-vision-router",
+   "market_tags": [
+    "community-pick"
+   ]
+  },
+  {
+   "name": "awesome-deepseek-harness",
+   "full_name": "0xsline/awesome-deepseek-harness",
+   "description": "DeepSeek Harness (DSH) ecosystem: curated plugins, tools, and infrastructure from dsh-external/hub and the public dsh-plugin topic.",
+   "url": "https://github.com/0xsline/awesome-deepseek-harness",
+   "stars": 728,
+   "updated_at": "2026-08-18T23:39:40Z",
+   "topics": [
+    "agent",
+    "ai",
+    "ai-agents",
+    "ai-tools",
+    "awesome",
+    "awesome-list"
+   ],
+   "license": "CC0-1.0",
+   "pkg_name": null,
+   "market_tags": []
+  },
+  {
+   "name": "dsh-vision-toolkit",
+   "full_name": "Anionex/dsh-vision-toolkit",
+   "description": "[dsh]为纯文本模型设计更强大的视觉工具箱：安装免费使用、粘贴图片直接识别、多张图片问答、截图到前端UI 还原等｜DeepSeek Harness-native integration for agent-vision-toolkit: image Q&A, long-screenshot OCR, UI restoration, grounding, pixel diff, Artifacts",
+   "url": "https://github.com/Anionex/dsh-vision-toolkit",
+   "stars": 700,
+   "updated_at": "2026-08-18T17:35:23Z",
+   "topics": [
+    "agent-skills",
+    "agent-vision-toolkit",
+    "computer-vision",
+    "deepseek",
+    "deepseek-harness",
+    "dsh"
+   ],
+   "license": "MIT",
+   "pkg_name": "@anionex/dsh-vision-toolkit",
+   "market_tags": [
+    "community-pick"
+   ]
+  },
+  {
+   "name": "helloagents",
+   "full_name": "hellowind777/helloagents",
+   "description": "一个自主的高级智能伙伴，不仅分析问题，更持续工作直到完成实现和验证。",
+   "url": "https://github.com/hellowind777/helloagents",
+   "stars": 688,
+   "updated_at": "2026-08-17T09:37:21Z",
+   "topics": [
+    "dsh",
+    "dsh-plugin"
+   ],
+   "license": "NOASSERTION",
+   "pkg_name": "helloagents",
+   "market_tags": []
+  },
+  {
+   "name": "memmy-agent",
+   "full_name": "MemTensor/memmy-agent",
+   "description": "🍙  A personal AI agent & local memory hub for all AI agents, gives every AI one shared, fully controlled memory and persistent context — all AI remember the same you. Now supports Claude Code, Codex,",
+   "url": "https://github.com/MemTensor/memmy-agent",
+   "stars": 671,
+   "updated_at": "2026-08-18T16:19:54Z",
+   "topics": [
+    "agent",
+    "agentic-ai",
+    "ai-agents",
+    "chatgpt",
+    "claude-code",
+    "cli"
+   ],
+   "license": "MIT",
+   "pkg_name": "memmy-agent",
+   "market_tags": []
+  },
+  {
+   "name": "working-activity",
+   "full_name": "ccch1mneyyy/working-activity",
+   "description": "Lively Working-line extension for pi CLI and DSH",
+   "url": "https://github.com/ccch1mneyyy/working-activity",
+   "stars": 653,
+   "updated_at": "2026-08-18T11:23:53Z",
+   "topics": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "pi-coding-agent",
+    "pi-plugin",
+    "statusline",
+    "working-line"
+   ],
+   "license": "MIT",
+   "pkg_name": "pi-working-activity",
+   "market_tags": []
+  },
+  {
+   "name": "sandbase-harness",
+   "full_name": "sandbaseai/sandbase-harness",
+   "description": "Open-source CMA-compatible agent runtime for any model, with MCP tools, sandboxed sessions, audit, replay, and a local console. Includes a native DeepSeek Harness bundle over stdio MCP.",
+   "url": "https://github.com/sandbaseai/sandbase-harness",
+   "stars": 621,
+   "updated_at": "2026-08-18T16:47:39Z",
+   "topics": [
+    "agent-framework",
+    "agent-observability",
+    "agent-runtime",
+    "agent-sandbox",
+    "ai-agents",
+    "ai-infrastructure"
+   ],
+   "license": "Apache-2.0",
+   "pkg_name": "managed-agents",
+   "market_tags": []
+  }
+ ]
+}

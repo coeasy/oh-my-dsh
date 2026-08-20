@@ -1,0 +1,8 @@
+# @coeasy/dsh-plugin-marketplace bundle patch: registers this plugin into a
+# profile's layer stack when installed via the official CLI:
+#   dsh plugin --profile web add @coeasy/dsh-plugin-marketplace
+# The dsh CLI reconciles this declaration into dsh.profile.bundles.
+- insert:
+    - id: coeasy-market
+      name: "@coeasy/dsh-plugin-marketplace"
+      inject: [webServer]

@@ -16,10 +16,16 @@ describe('status tray copy', () => {
     assert.equal(trayTooltip(snapshot('failed'), 'zh'), 'my-dsh · 启动失败')
   })
 
-  it('exposes show, restart, and quit actions', () => {
-    assert.deepEqual(trayMenuLabels('zh'), { show: '打开窗口', restart: '重启', quit: '退出' })
+  it('exposes show, market, restart, and quit actions', () => {
+    assert.deepEqual(trayMenuLabels('zh'), {
+      show: '打开窗口',
+      market: '插件市场',
+      restart: '重启',
+      quit: '退出',
+    })
     assert.deepEqual(trayMenuLabels('en'), {
       show: 'Open Window',
+      market: 'Marketplace',
       restart: 'Restart',
       quit: 'Quit',
     })

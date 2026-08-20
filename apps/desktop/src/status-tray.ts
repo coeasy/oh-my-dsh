@@ -2,6 +2,7 @@ import type { RuntimePhase, RuntimeSnapshot } from './contracts.ts'
 
 export interface TrayMenuLabels {
   show: string
+  market: string
   restart: string
   quit: string
 }
@@ -32,7 +33,7 @@ export function trayTooltip(snapshot: RuntimeSnapshot, locale: 'en' | 'zh'): str
 /** Tray context-menu labels for show, restart, and quit. */
 export function trayMenuLabels(locale: 'en' | 'zh'): TrayMenuLabels {
   if (locale === 'zh') {
-    return { show: '打开窗口', restart: '重启', quit: '退出' }
+    return { show: '打开窗口', market: '插件市场', restart: '重启', quit: '退出' }
   }
-  return { show: 'Open Window', restart: 'Restart', quit: 'Quit' }
+  return { show: 'Open Window', market: 'Marketplace', restart: 'Restart', quit: 'Quit' }
 }

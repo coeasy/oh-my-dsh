@@ -1,5 +1,11 @@
 export type RuntimeMode = 'local' | 'download' | 'bundled'
 
+/**
+ * Launch lifecycle stages, reported through `LaunchOptions.onProgress` so
+ * hosts can surface a real progress indicator instead of a black-box wait.
+ */
+export type LaunchStage = 'resolving' | 'downloading' | 'spawning' | 'waiting-ready' | 'ready'
+
 export interface LaunchOptions {
   workspaceCwd: string
   mode?: RuntimeMode
@@ -15,6 +21,8 @@ export interface LaunchOptions {
   env?: NodeJS.ProcessEnv
   /** Append child stdout/stderr when set. */
   logPath?: string
+  /** Stage progress callback (resolving → downloading → spawning → waiting-ready → ready). */
+  onProgress?: (stage: LaunchStage, detail?: string) => void
 }
 
 export interface ReadyPayload {
