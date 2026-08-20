@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # One-click: fetch DeepSeek Harness from GitHub and pack clients for this OS.
 # Usage:
-#   ./build-clients.sh
-#   ./build-clients.sh stable|latest|lock|master
+#   ./tools/build-clients.sh
+#   ./tools/build-clients.sh stable|latest|lock|master
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 export CI=1
 CHANNEL="${1:-stable}"
 
@@ -39,5 +39,5 @@ echo "Artifacts for this OS:"
 echo "  apps/vscode/*.vsix"
 echo "  apps/desktop/dist-release/"
 if [[ "${DSH_INSTALL:-}" != "1" ]]; then
-  echo "Next: ./install-clients.sh"
+  echo "Next: ./tools/install-clients.sh"
 fi

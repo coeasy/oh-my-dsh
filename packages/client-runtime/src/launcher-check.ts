@@ -66,7 +66,7 @@ export function assertLauncherUsable(command: string, io: LauncherIo): string {
     if (!win32.isAbsolute(target)) continue
     if (io.exists(target)) continue
     throw new Error(
-      `stale engine launcher ${raw} points at missing ${target}. Run .\\build-clients.cmd or pnpm fetch:engine && pnpm engine:build`,
+      `stale engine launcher ${raw} points at missing ${target}. Run tools\\build-clients.cmd or pnpm fetch:engine && pnpm engine:build`,
     )
   }
   return raw

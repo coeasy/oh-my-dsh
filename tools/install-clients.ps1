@@ -4,12 +4,12 @@
 #   $env:DSH_INSTALL_DESKTOP = '1'; .\install-clients.ps1
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-Set-Location -LiteralPath $PSScriptRoot
+Set-Location -LiteralPath (Join-Path $PSScriptRoot '..')
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw 'Node.js 22+ is required. Install from https://nodejs.org/'
 }
 
 Write-Host '== install packed clients =='
-node (Join-Path $PSScriptRoot 'scripts\install-clients.mjs')
+node (Join-Path $PSScriptRoot '..\scripts\install-clients.mjs')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
