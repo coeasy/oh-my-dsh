@@ -19,7 +19,16 @@ const main = source('../src/main.ts')
 const security = source('../src/security.ts')
 
 describe('preload exposure surface (C3)', () => {
-  const EXPOSED_METHODS = ['pickFolder', 'setupDefaults', 'completeSetup', 'shouldSkipOnboarding']
+  const EXPOSED_METHODS = [
+    'pickFolder',
+    'setupDefaults',
+    'completeSetup',
+    'shouldSkipOnboarding',
+    'marketAction',
+    'usageAnalytics',
+    'modelConfig',
+    'degenerationGuard',
+  ]
 
   it('exposes exactly the allowlisted dshDesktop methods', () => {
     const block = /contextBridge\.exposeInMainWorld\('dshDesktop',\s*\{([\s\S]*?)\n\}\)/.exec(
@@ -49,6 +58,11 @@ describe('preload exposure surface (C3)', () => {
       'desktop:should-skip-onboarding',
       'mobile:open-pairing',
       'mobile:status',
+      'market:action',
+      'usage-analytics:action',
+      'model-config:action',
+      'degeneration-guard:action',
+      'plugin-config:open',
     ])
     const channels = [...preload.matchAll(/ipcRenderer\.invoke\('([^']+)'/g)].map((m) => m[1])
     assert.ok(channels.length >= EXPOSED_METHODS.length + 1, 'expected several invoke call sites')
@@ -73,8 +87,8 @@ describe('window security flags (C3)', () => {
   })
 
   it('secures every window instance through secureWindow()', () => {
-    assert.match(main, /secureWindow\(window\)/, 'main window must be hardened')
-    assert.match(main, /secureWindow\(mobileWindow\)/, 'mobile window must be hardened')
+    assert.match(main, /secureWindow\(\s*window(?:,|\))/, 'main window must be hardened')
+    assert.match(main, /secureWindow\(mobileWindow,/, 'mobile window must be hardened')
   })
 
   it('navigation interception: untrusted urls are denied and offloaded to the shell', () => {
@@ -85,5 +99,26 @@ describe('window security flags (C3)', () => {
     assert.match(security, /will-attach-webview/)
     assert.match(security, /setPermissionRequestHandler/)
     assert.match(security, /setPermissionCheckHandler/)
+  })
+})
+
+describe('sidebar DOM bridge', () => {
+  it('projects data-dsh-sidebar-* attributes from the real CSS-module sidebar', () => {
+    // Upstream never renders data-dsh-sidebar-*; without the bridge every
+    // plugin mount silently no-ops and the plugins vanish from the UI.
+    assert.match(preload, /function syncSidebarAttributes\(\)/, 'bridge function missing')
+    assert.match(preload, /\[class\*="footArea"\]/, 'bridge must anchor on the hashed footArea class')
+    assert.match(
+      preload,
+      /setAttribute\('data-dsh-sidebar-(footer|root|wide)'/,
+      'bridge must project the data-dsh-sidebar-* attributes',
+    )
+    // The bridge must run before every mount and on DOM mutations.
+    assert.match(preload, /syncSidebarAttributes\(\)\s*\n\s*mountMobileButton\(\)/)
+    assert.match(
+      preload,
+      /sidebarObserver\.observe\(document\.documentElement,[\s\S]*?attributeFilter: \['class'\]/,
+      'observer must watch real class mutations, not the projected attribute',
+    )
   })
 })

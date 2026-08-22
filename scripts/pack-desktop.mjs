@@ -1,7 +1,6 @@
 /**
- * Pack a third-party desktop installer with a link-free bundled engine.
- * Flattens the DSH clone into runtime/payload so archive tools will not
- * follow workspace cycles. Writes to apps/desktop/dist-release.
+ * Pack one desktop edition. `bundled` includes the link-free engine payload;
+ * `system` is the slim package and resolves dsh from PATH/DSH_BIN.
  * Packs the current OS only: Windows NSIS/portable/zip, macOS dmg/zip,
  * Linux AppImage/zip. Requires `pnpm compile:desktop` first.
  * Set DSH_PACK_SKIP_INSTALLER=1 to only check compile artifacts.
@@ -22,19 +21,36 @@ import { assertAlignedVersions } from './product-version.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const appDir = join(root, 'apps', 'desktop')
-const outDir = join(appDir, 'dist-release')
+// `DSH_ELECTRON_OUTPUT` lets the dual-edition build keep each edition's
+// artifacts apart; without it the second (system) pack would overwrite the
+// first (bundled) edition's win-unpacked, stripping the engine runtime from
+// the unpacked layout users run.
+const outDir = process.env.DSH_ELECTRON_OUTPUT
+  ? join(appDir, process.env.DSH_ELECTRON_OUTPUT)
+  : join(appDir, 'dist-release')
 // May be redirected to an isolated build dir when a previous output is locked.
 let electronOutDir = outDir
 const version = assertAlignedVersions(root)
 const platform = process.platform
+const editionArg = process.argv.find((arg) => arg.startsWith('--edition='))?.slice(10)
+const edition = String(editionArg || process.env.DSH_DESKTOP_EDITION || 'bundled')
+  .trim()
+  .toLowerCase()
+if (edition !== 'bundled' && edition !== 'system') {
+  throw new Error(`pack:desktop: edition must be bundled|system, got ${edition}`)
+}
+const systemEdition = edition === 'system'
+const configName = systemEdition ? 'electron-builder-online.yml' : 'electron-builder.yml'
+const runtimeName = systemEdition ? 'runtime-system.json' : 'runtime.json'
+const artifactPrefix = systemEdition ? 'my-dsh-online' : 'my-dsh'
 const required = [
   join(appDir, 'out', 'main.js'),
   join(appDir, 'out', 'preload.cjs'),
   join(appDir, 'out', 'embedded-client.js'),
   join(appDir, 'splash.html'),
   join(appDir, 'package.json'),
-  join(appDir, 'runtime.json'),
-  join(appDir, 'electron-builder.yml'),
+  join(appDir, runtimeName),
+  join(appDir, configName),
 ]
 
 for (const file of required) {
@@ -45,48 +61,50 @@ for (const file of required) {
 
 if (process.env.DSH_PACK_SKIP_INSTALLER === '1') {
   console.log(
-    'OK: Electron compile artifacts present; installer skipped (DSH_PACK_SKIP_INSTALLER=1)',
+    `OK: Electron ${edition} compile artifacts present; installer skipped (DSH_PACK_SKIP_INSTALLER=1)`,
   )
   process.exit(0)
 }
 
-const payload = spawnSync(process.execPath, [join(root, 'scripts', 'stage-payload.mjs')], {
-  cwd: root,
-  encoding: 'utf8',
-  windowsHide: true,
-  timeout: 1_800_000,
-  stdio: 'inherit',
-  env: process.env,
-})
-if (payload.status !== 0) {
-  throw new Error(`pack:desktop: stage-payload failed (exit ${payload.status})`)
-}
-
 const payloadRoot = join(root, 'runtime', 'payload')
 const launcherName = platform === 'win32' ? 'dsh.cmd' : 'dsh'
-const launcher = join(payloadRoot, launcherName)
-const harness = join(payloadRoot, 'harness')
-if (!existsSync(launcher) || !existsSync(join(harness, 'apps', 'cli', 'lib', 'bin.js'))) {
-  throw new Error(`pack:desktop missing flattened engine ${launcher}`)
-}
-const reparse = findReparsePath(harness)
-if (reparse) {
-  throw new Error(`pack:desktop: payload still has a reparse point: ${reparse}`)
-}
-
-const proved = spawnSync(
-  process.execPath,
-  [join(root, 'scripts', 'prove-relocatable.mjs'), payloadRoot],
-  {
+if (!systemEdition) {
+  const payload = spawnSync(process.execPath, [join(root, 'scripts', 'stage-payload.mjs')], {
     cwd: root,
     encoding: 'utf8',
     windowsHide: true,
-    timeout: 60_000,
+    timeout: 1_800_000,
     stdio: 'inherit',
-  },
-)
-if (proved.status !== 0) {
-  throw new Error(`pack:desktop: payload engine is not relocatable (exit ${proved.status})`)
+    env: process.env,
+  })
+  if (payload.status !== 0) {
+    throw new Error(`pack:desktop: stage-payload failed (exit ${payload.status})`)
+  }
+
+  const launcher = join(payloadRoot, launcherName)
+  const harness = join(payloadRoot, 'harness')
+  if (!existsSync(launcher) || !existsSync(join(harness, 'apps', 'cli', 'lib', 'bin.js'))) {
+    throw new Error(`pack:desktop missing flattened engine ${launcher}`)
+  }
+  const reparse = findReparsePath(harness)
+  if (reparse) {
+    throw new Error(`pack:desktop: payload still has a reparse point: ${reparse}`)
+  }
+
+  const proved = spawnSync(
+    process.execPath,
+    [join(root, 'scripts', 'prove-relocatable.mjs'), payloadRoot],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 60_000,
+      stdio: 'inherit',
+    },
+  )
+  if (proved.status !== 0) {
+    throw new Error(`pack:desktop: payload engine is not relocatable (exit ${proved.status})`)
+  }
 }
 
 function desktopScenarioIds() {
@@ -98,10 +116,16 @@ function desktopScenarioIds() {
 function unpackedAppOutDir() {
   if (platform === 'win32') return join(electronOutDir, 'win-unpacked')
   if (platform === 'linux') return join(electronOutDir, 'linux-unpacked')
-  const macDir = join(electronOutDir, 'mac')
-  const app = existsSync(macDir) ? readdirSync(macDir).find((name) => name.endsWith('.app')) : ''
-  if (!app) throw new Error(`pack:desktop missing mac .app in ${macDir}`)
-  return join(macDir, app, 'Contents')
+  const macDirs = existsSync(electronOutDir)
+    ? readdirSync(electronOutDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && /^mac(?:-|$)/u.test(entry.name))
+        .map((entry) => join(electronOutDir, entry.name))
+    : []
+  for (const macDir of macDirs) {
+    const app = readdirSync(macDir).find((name) => name.endsWith('.app'))
+    if (app) return join(macDir, app, 'Contents')
+  }
+  throw new Error(`pack:desktop missing mac .app in ${macDirs.join(', ') || electronOutDir}`)
 }
 
 // Best-effort cleanup of leftover build dirs from interrupted runs. These are
@@ -159,12 +183,14 @@ if (builderArgs.length === 0) {
     `pack:desktop: no electron-builder targets for ${platform} (${targets.join(',')})`,
   )
 }
-console.log(`pack:desktop: ${platform} ${builderArgs.join(' ')}`)
+console.log(`pack:desktop: ${platform} ${edition} ${builderArgs.join(' ')}`)
 const packed = spawnSync(
   'pnpm',
   [
     'exec',
     'electron-builder',
+    '--config',
+    configName,
     ...builderArgs,
     `-c.directories.output=${electronOutDir.replace(/\\/g, '/')}`,
     '--publish',
@@ -185,35 +211,50 @@ if (packed.status !== 0) {
 }
 
 const electronPlatformName = platform === 'darwin' ? 'darwin' : platform
-const unpackedRuntime = join(appResourcesDir(unpackedAppOutDir(), electronPlatformName), 'runtime')
-const unpackedLauncher = join(unpackedRuntime, launcherName)
-if (!existsSync(unpackedLauncher)) {
-  throw new Error(`pack:desktop missing unpacked launcher ${unpackedLauncher}`)
-}
-const launcherText = readFileSync(unpackedLauncher, 'utf8')
-if (platform === 'win32' && !isRelocatableWinLauncher(launcherText)) {
-  throw new Error(`pack:desktop unpacked launcher is not relocatable: ${unpackedLauncher}`)
-}
-if (platform !== 'win32' && !isRelocatablePosixLauncher(launcherText)) {
-  throw new Error(`pack:desktop unpacked launcher is not relocatable: ${unpackedLauncher}`)
-}
-const unpackedReparse = findReparsePath(join(unpackedRuntime, 'harness'))
-if (unpackedReparse) {
-  throw new Error(`pack:desktop: unpacked harness still has a reparse point: ${unpackedReparse}`)
-}
-const unpacked = spawnSync(
-  process.execPath,
-  [join(root, 'scripts', 'prove-relocatable.mjs'), unpackedRuntime],
-  {
-    cwd: root,
-    encoding: 'utf8',
-    windowsHide: true,
-    timeout: 60_000,
-    stdio: 'inherit',
-  },
-)
-if (unpacked.status !== 0) {
-  throw new Error(`pack:desktop: unpacked runtime is not relocatable (exit ${unpacked.status})`)
+const unpackedResources = appResourcesDir(unpackedAppOutDir(), electronPlatformName)
+const unpackedRuntime = join(unpackedResources, 'runtime')
+if (systemEdition) {
+  const forbidden = [
+    join(unpackedRuntime, launcherName),
+    join(unpackedRuntime, 'harness'),
+    join(unpackedRuntime, platform === 'win32' ? 'node.exe' : 'node'),
+  ]
+  const leaked = forbidden.find((path) => existsSync(path))
+  if (leaked) throw new Error(`pack:desktop: bundled runtime leaked into system edition: ${leaked}`)
+  const runtimeConfig = JSON.parse(readFileSync(join(unpackedResources, 'runtime.json'), 'utf8'))
+  if (runtimeConfig.edition !== 'system') {
+    throw new Error('pack:desktop: slim package runtime.json is not edition=system')
+  }
+} else {
+  const unpackedLauncher = join(unpackedRuntime, launcherName)
+  if (!existsSync(unpackedLauncher)) {
+    throw new Error(`pack:desktop missing unpacked launcher ${unpackedLauncher}`)
+  }
+  const launcherText = readFileSync(unpackedLauncher, 'utf8')
+  if (platform === 'win32' && !isRelocatableWinLauncher(launcherText)) {
+    throw new Error(`pack:desktop unpacked launcher is not relocatable: ${unpackedLauncher}`)
+  }
+  if (platform !== 'win32' && !isRelocatablePosixLauncher(launcherText)) {
+    throw new Error(`pack:desktop unpacked launcher is not relocatable: ${unpackedLauncher}`)
+  }
+  const unpackedReparse = findReparsePath(join(unpackedRuntime, 'harness'))
+  if (unpackedReparse) {
+    throw new Error(`pack:desktop: unpacked harness still has a reparse point: ${unpackedReparse}`)
+  }
+  const unpacked = spawnSync(
+    process.execPath,
+    [join(root, 'scripts', 'prove-relocatable.mjs'), unpackedRuntime],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 60_000,
+      stdio: 'inherit',
+    },
+  )
+  if (unpacked.status !== 0) {
+    throw new Error(`pack:desktop: unpacked runtime is not relocatable (exit ${unpacked.status})`)
+  }
 }
 
 const listed = existsSync(electronOutDir) ? readdirSync(electronOutDir) : []
@@ -221,37 +262,44 @@ function hasArtifact(predicate) {
   return listed.some((name) => predicate(name))
 }
 
-if (targets.includes('nsis') && !existsSync(join(electronOutDir, `my-dsh-Setup-${version}.exe`))) {
-  throw new Error(`pack:desktop missing my-dsh-Setup-${version}.exe in ${electronOutDir}`)
+const setupName = `${artifactPrefix}-Setup-${version}.exe`
+const portableName = `${artifactPrefix}-${version}-portable.exe`
+if (targets.includes('nsis') && !existsSync(join(electronOutDir, setupName))) {
+  throw new Error(`pack:desktop missing ${setupName} in ${electronOutDir}`)
 }
-if (
-  targets.includes('portable') &&
-  !existsSync(join(electronOutDir, `my-dsh-${version}-portable.exe`))
-) {
-  throw new Error(`pack:desktop missing my-dsh-${version}-portable.exe in ${electronOutDir}`)
+if (targets.includes('portable') && !existsSync(join(electronOutDir, portableName))) {
+  throw new Error(`pack:desktop missing ${portableName} in ${electronOutDir}`)
 }
 if (targets.includes('zip')) {
   const zipName =
     platform === 'win32'
-      ? `my-dsh-${version}-win.zip`
+      ? `${artifactPrefix}-${version}-win.zip`
       : platform === 'darwin'
-        ? `my-dsh-${version}-mac.zip`
-        : `my-dsh-${version}-linux.zip`
-  if (!hasArtifact((name) => name === zipName || name === `my-dsh-${version}-win.zip`)) {
+        ? `${artifactPrefix}-${version}-mac.zip`
+        : `${artifactPrefix}-${version}-linux.zip`
+  if (!hasArtifact((name) => name === zipName)) {
     throw new Error(`pack:desktop missing ${zipName} in ${electronOutDir}`)
   }
 }
 if (
   targets.includes('dmg') &&
-  !hasArtifact((name) => name.endsWith('.dmg') && name.includes(version))
+  !hasArtifact(
+    (name) =>
+      name.startsWith(`${artifactPrefix}-`) && name.endsWith('.dmg') && name.includes(version),
+  )
 ) {
-  throw new Error(`pack:desktop missing dmg for ${version} in ${electronOutDir}`)
+  throw new Error(`pack:desktop missing ${artifactPrefix} dmg for ${version} in ${electronOutDir}`)
 }
 if (
   targets.includes('appimage') &&
-  !hasArtifact((name) => name.endsWith('.AppImage') && name.includes(version))
+  !hasArtifact(
+    (name) =>
+      name.startsWith(`${artifactPrefix}-`) && name.endsWith('.AppImage') && name.includes(version),
+  )
 ) {
-  throw new Error(`pack:desktop missing AppImage for ${version} in ${electronOutDir}`)
+  throw new Error(
+    `pack:desktop missing ${artifactPrefix} AppImage for ${version} in ${electronOutDir}`,
+  )
 }
 
 const sums = spawnSync(
@@ -269,9 +317,9 @@ if (sums.status !== 0) {
   throw new Error(`pack:desktop: checksum-release failed (exit ${sums.status})`)
 }
 if (targets.includes('nsis'))
-  console.log(`OK: NSIS installer ${join(electronOutDir, `my-dsh-Setup-${version}.exe`)}`)
+  console.log(`OK: ${edition} NSIS installer ${join(electronOutDir, setupName)}`)
 if (targets.includes('portable')) {
-  console.log(`OK: portable exe ${join(electronOutDir, `my-dsh-${version}-portable.exe`)}`)
+  console.log(`OK: ${edition} portable exe ${join(electronOutDir, portableName)}`)
 }
 if (targets.includes('zip')) console.log(`OK: zip in ${electronOutDir}`)
 if (targets.includes('dmg')) console.log(`OK: dmg in ${electronOutDir}`)

@@ -45,8 +45,10 @@ describe('desktop launch-config', () => {
     assert.deepEqual(parseRuntimeFile('{"downloadUrl":"https://example.test/dsh.bin"}'), {
       downloadUrl: 'https://example.test/dsh.bin',
     })
+    assert.deepEqual(parseRuntimeFile('{"edition":"system"}'), { edition: 'system' })
     assert.deepEqual(parseRuntimeFile('{}'), {})
     assert.throws(() => parseRuntimeFile('[]'), /object/)
+    assert.throws(() => parseRuntimeFile('{"edition":"unknown"}'), /bundled\|system/)
   })
 
   it('resolves the bundled launcher under extraResources when packaged', () => {

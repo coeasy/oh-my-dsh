@@ -1,0 +1,24 @@
+{
+  "name": "@dsh/plugin-degeneration-guard",
+  "version": "0.1.0-build.329e8a5f",
+  "private": true,
+  "type": "module",
+  "description": "Cordis bundle: degeneration detection (n-gram cycle + tool-repeat + turn limit) with an escalation ladder.",
+  "main": "./out/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./out/index.js"
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=out/index.js && esbuild ui-src/mount.ts --bundle --platform=browser --format=iife --outfile=ui/bundle.js",
+    "test": "node --experimental-strip-types --test \"tests/*.test.ts\""
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

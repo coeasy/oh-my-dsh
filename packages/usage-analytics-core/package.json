@@ -1,0 +1,16 @@
+{
+  "name": "@dsh/usage-analytics-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure-function statistics core for Usage Analytics: mapping, dedupe, streaming merge, pricing, cache metrics, unknown propagation.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src"],
+  "dependencies": {
+    "@dsh/usage-protocol": "workspace:*"
+  },
+  "license": "MIT"
+}

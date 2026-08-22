@@ -47,7 +47,15 @@ function isComplete() {
     if (!isRelocatableWinLauncher(text)) return false
   }
   if (!harnessComplete(harness) || findReparsePath(harness)) return false
-  return probeVersion(process.execPath, payloadBin).status === 0
+  const payloadProbe = probeVersion(process.execPath, payloadBin)
+  if (payloadProbe.status !== 0) return false
+  // A payload is only reusable when it matches the current clone. An updated
+  // engine (new ref) must rebuild the payload, never silently reuse a stale
+  // one — previously the engine was upgraded while packed clients still
+  // carried the old version, leaving the desktop app unable to start.
+  const cloneProbe = probeVersion(process.execPath, cloneBin)
+  if (cloneProbe.status !== 0) return false
+  return payloadProbe.stdout.trim() === cloneProbe.stdout.trim()
 }
 
 if (!existsSync(cloneBin)) {
@@ -90,7 +98,13 @@ if (isComplete() && !force) {
 }
 
 console.log(`Flattening harness ${engineRoot} → ${harness}`)
-const flattened = flattenHarness(engineRoot, harness, { force, extraXd: STAGE_EXCLUDE_DIRS })
+// The rebuild branch exists precisely because the payload is missing,
+// incomplete, or stale (engine version changed). Always force-flatten so a
+// complete-but-old payload is replaced rather than skipped.
+const flattened = flattenHarness(engineRoot, harness, {
+  force: true,
+  extraXd: STAGE_EXCLUDE_DIRS,
+})
 if (flattened.skipped) {
   console.log(`flatten skipped (already complete) at ${harness}`)
 } else {

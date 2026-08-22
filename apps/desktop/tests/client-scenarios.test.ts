@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { appResourcesDir } from '../../../scripts/app-resources-dir.mjs'
@@ -64,6 +65,20 @@ describe('pack resources dir', () => {
       appResourcesDir('/out/App.app/Contents', 'darwin'),
       join('/out/App.app/Contents', 'Resources'),
     )
+    assert.equal(
+      appResourcesDir('/out/App.app/Contents', 'mac'),
+      join('/out/App.app/Contents', 'Resources'),
+    )
+    const appOutDir = mkdtempSync(join(process.cwd(), 'test-mac-app-'))
+    try {
+      mkdirSync(join(appOutDir, 'my-dsh.app', 'Contents'), { recursive: true })
+      assert.equal(
+        appResourcesDir(appOutDir, 'mac'),
+        join(appOutDir, 'my-dsh.app', 'Contents', 'Resources'),
+      )
+    } finally {
+      rmSync(appOutDir, { recursive: true, force: true })
+    }
     assert.equal(
       appResourcesDir('/out/linux-unpacked', 'linux'),
       join('/out/linux-unpacked', 'resources'),

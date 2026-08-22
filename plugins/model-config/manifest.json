@@ -1,0 +1,20 @@
+{
+  "id": "com.my-dsh.model-config",
+  "name": "Model Config",
+  "version": "0.1.0",
+  "api_version": "plugin.host.v1",
+  "targets": ["desktop", "vscode"],
+  "permissions": [
+    "settings.read",
+    "settings.write",
+    "session.observe",
+    "model.switch",
+    "subagent.configure",
+    "events.subscribe",
+    "ui.mount"
+  ],
+  "host_entry": "src/index.ts",
+  "ui_entry": "ui/bundle.js",
+  "schema_version": 1,
+  "signature": ""
+}

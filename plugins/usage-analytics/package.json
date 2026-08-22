@@ -1,0 +1,32 @@
+{
+  "name": "@dsh/plugin-usage-analytics",
+  "version": "0.1.0-build.bf04a5b1",
+  "private": true,
+  "type": "module",
+  "description": "Cordis bundle: Usage Analytics collector — safe usage observation, normalization, storage and query API.",
+  "main": "./out/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./out/index.js"
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=out/index.js --external:sql.js",
+    "test": "node --experimental-strip-types --test \"tests/*.test.ts\"",
+    "package": "node ../../scripts/package-usage-plugin.mjs"
+  },
+  "dependencies": {
+    "sql.js": "^1.13.0"
+  },
+  "devDependencies": {
+    "@dsh/usage-analytics-core": "workspace:*",
+    "@dsh/usage-protocol": "workspace:*"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

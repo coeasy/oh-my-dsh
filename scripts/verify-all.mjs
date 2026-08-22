@@ -12,7 +12,7 @@ for (const script of steps) {
   const result = spawnSync('pnpm', ['run', script], {
     cwd: root,
     encoding: 'utf8',
-    shell: true,
+    shell: process.platform === 'win32',
     windowsHide: true,
     stdio: 'inherit',
   })

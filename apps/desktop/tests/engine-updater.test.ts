@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +13,7 @@ import {
   engineVersionDir,
   sha256Hex,
   rollbackCandidate,
+  downloadEnginePayload,
 } from '../src/engine-updater.ts'
 
 function makeEngineDir(root: string, version: string) {
@@ -30,12 +32,48 @@ test('parseLatestRelease extracts ref and url', () => {
 })
 
 test('parseEngineUpdateManifest validates checksum and https url', () => {
-  const line = `0.2.0 ${'a'.repeat(64)} https://dl.example/engine.zip`
+  const line = `0.2.0 ${'A'.repeat(64)} https://dl.example/engine.zip`
   const m = parseEngineUpdateManifest(line)
   assert.equal(m?.version, '0.2.0')
   assert.equal(m?.checksum, 'a'.repeat(64))
   assert.equal(parseEngineUpdateManifest(`0.2.0 bad https://x`), undefined)
   assert.equal(parseEngineUpdateManifest(`0.2.0 ${'a'.repeat(64)} http://x`), undefined)
+  assert.equal(parseEngineUpdateManifest(`../../outside ${'a'.repeat(64)} https://x`), undefined)
+})
+
+test('engineVersionDir rejects traversal and non-semver cache keys', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-upd-safe-'))
+  assert.throws(() => engineVersionDir(root, '../../outside'), /invalid engine version/)
+  assert.throws(() => engineVersionDir(root, 'latest'), /invalid engine version/)
+})
+
+test('downloadEnginePayload verifies before writing and only accepts HTTPS', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-download-engine-'))
+  const payload = new Uint8Array([1, 3, 3, 7])
+  const checksum = createHash('sha256').update(payload).digest('hex')
+  const writes: string[] = []
+  const dir = await downloadEnginePayload({
+    cacheRoot: root,
+    version: '0.2.0',
+    url: 'https://dl.example/engine.zip',
+    checksum,
+    mkdir: () => {},
+    writeFile: (path) => writes.push(path),
+    fetchImpl: async () => new Response(payload, { status: 200 }),
+  })
+  assert.equal(dir, engineVersionDir(root, '0.2.0'))
+  assert.deepEqual(writes, [join(dir, 'engine.zip')])
+  await assert.rejects(
+    () =>
+      downloadEnginePayload({
+        cacheRoot: root,
+        version: '0.2.1',
+        url: 'http://dl.example/engine.zip',
+        checksum,
+        fetchImpl: async () => new Response(payload, { status: 200 }),
+      }),
+    /non-https/,
+  )
 })
 
 test('compareVersions orders dotted versions', () => {

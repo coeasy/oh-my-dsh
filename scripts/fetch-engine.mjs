@@ -7,7 +7,7 @@ import { existsSync, renameSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadEngineLock } from './engine-lock.mjs'
+import { loadEngineLock, writeEngineLock } from './engine-lock.mjs'
 import { defaultEngineRoot } from './engine-root.mjs'
 import { fetchRefCandidates, shouldKeepExistingEngine } from './git-refs.mjs'
 
@@ -84,6 +84,20 @@ if (!updated) {
   throw new Error(
     `fetch-engine: could not fetch ${lock.repository}#${ref} into ${dest}. Set DSH_ENGINE_REF=master if the requested ref is unpublished.`,
   )
+}
+
+// Pin the actually-checked-out commit so engine.lock.json always reflects
+// reality (fetch may resolve tags/branches/SHAs into a concrete HEAD).
+const headProbe = spawnSync('git', ['rev-parse', 'HEAD'], {
+  cwd: dest,
+  encoding: 'utf8',
+  windowsHide: true,
+  timeout: 30_000,
+})
+const head = String(headProbe.stdout || '').trim()
+if (headProbe.status === 0 && /^[0-9a-f]{40}$/u.test(head)) {
+  writeEngineLock(root, { pinnedCommit: head })
+  console.log(`fetch-engine: pinnedCommit ${head}`)
 }
 
 console.log(`OK: engine ${dest} → ${ref}`)

@@ -1,0 +1,19 @@
+{
+  "name": "@dsh/usage-analytics-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared Usage Analytics UI Bundle (overview/providers/cache/sessions/settings) — pure render functions + host bridge contract, platform-agnostic.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src", "ui"],
+  "dependencies": {
+    "@dsh/usage-protocol": "workspace:*"
+  },
+  "scripts": {
+    "build:ui": "esbuild src/mount-global.ts --bundle --platform=browser --format=iife --outfile=ui/bundle.js"
+  },
+  "license": "MIT"
+}

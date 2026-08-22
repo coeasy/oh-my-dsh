@@ -41,7 +41,7 @@ const hosts = ['cursor', 'code'].filter((name) => which(name))
 let failed = false
 
 if (!vsix) {
-  console.warn('install-clients: no VSIX under apps/vscode — run pnpm pack:vscode or .\\build-clients.cmd first')
+  console.warn('install-clients: no VSIX under apps/vscode — run pnpm pack:vscode or tools\\build-clients.cmd first')
 } else if (hosts.length === 0) {
   console.warn(`install-clients: VSIX ready at ${vsix}`)
   console.warn('install-clients: neither `cursor` nor `code` is on PATH; install the VSIX from the editor UI')
@@ -77,9 +77,20 @@ if (setup || portable || zip || dmg || appimage) {
   if (appimage) console.log(`  AppImage ${appimage}`)
 }
 
-if (setup && process.env.DSH_INSTALL_DESKTOP === '1') {
-  console.log(`install-clients: launching ${setup}`)
-  const launched = spawnSync(setup, [], {
+const desktopArtifact = setup || dmg || appimage
+if (desktopArtifact && process.env.DSH_INSTALL_DESKTOP === '1') {
+  const launchArgs =
+    process.platform === 'darwin'
+      ? ['-W', desktopArtifact]
+      : process.platform === 'linux' && appimage
+        ? [desktopArtifact]
+        : [desktopArtifact]
+  const launcher = process.platform === 'darwin' ? 'open' : desktopArtifact
+  if (process.platform === 'linux' && appimage) {
+    spawnSync('chmod', ['+x', desktopArtifact], { cwd: root, windowsHide: true })
+  }
+  console.log(`install-clients: launching ${desktopArtifact}`)
+  const launched = spawnSync(launcher, launchArgs, {
     cwd: root,
     encoding: 'utf8',
     windowsHide: true,
@@ -87,15 +98,16 @@ if (setup && process.env.DSH_INSTALL_DESKTOP === '1') {
     timeout: 600_000,
   })
   if (launched.status !== 0) {
-    console.error(`install-clients: NSIS exited ${launched.status}`)
+    console.error(`install-clients: ${desktopArtifact} exited ${launched.status}`)
     failed = true
   }
-} else if (setup) {
-  console.log('install-clients: to run NSIS now, set DSH_INSTALL_DESKTOP=1')
+} else if (desktopArtifact) {
+  const hint = process.platform === 'darwin' ? 'open' : 'run'
+  console.log(`install-clients: to ${hint} ${desktopArtifact} now, set DSH_INSTALL_DESKTOP=1`)
 }
 
 if (!vsix && !setup && !portable && !zip && !dmg && !appimage) {
-  throw new Error('install-clients: no packed artifacts found. Run ./build-clients.sh or .\\build-clients.cmd first.')
+  throw new Error('install-clients: no packed artifacts found. Run ./tools/build-clients.sh or tools\\build-clients.cmd first.')
 }
 
 if (failed) process.exit(1)

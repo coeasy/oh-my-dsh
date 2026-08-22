@@ -5,9 +5,11 @@ const pathFor = (platform: NodeJS.Platform | undefined) =>
   (platform ?? process.platform) === 'win32' ? win32 : posix
 
 export type RuntimeMode = 'local' | 'download' | 'bundled'
+export type DesktopEdition = 'bundled' | 'system'
 
 export interface BundledRuntimeFile {
   downloadUrl?: string
+  edition?: DesktopEdition
 }
 
 export interface EngineLaunch {
@@ -48,6 +50,7 @@ export function resolveEngineLaunch(input: {
   env?: NodeJS.ProcessEnv
   exists?: (path: string) => boolean
   platform?: NodeJS.Platform
+  runtime?: BundledRuntimeFile
 }): EngineLaunch {
   const env = input.env ?? {}
   const exists = input.exists ?? existsSync
@@ -58,6 +61,9 @@ export function resolveEngineLaunch(input: {
     .toLowerCase()
 
   if (input.packaged) {
+    if (input.runtime?.edition === 'system') {
+      return { mode: 'local', dshCommand: env.DSH_BIN || 'dsh' }
+    }
     if (explicit === 'download') return { mode: 'download' }
     return {
       mode: 'bundled',
@@ -95,7 +101,14 @@ export function parseRuntimeFile(text: string): BundledRuntimeFile {
     typeof (json as { downloadUrl?: unknown }).downloadUrl === 'string'
       ? (json as { downloadUrl: string }).downloadUrl.trim()
       : ''
-  return downloadUrl ? { downloadUrl } : {}
+  const rawEdition = (json as { edition?: unknown }).edition
+  if (rawEdition !== undefined && rawEdition !== 'bundled' && rawEdition !== 'system') {
+    throw new Error('runtime.json edition must be bundled|system')
+  }
+  return {
+    ...(downloadUrl ? { downloadUrl } : {}),
+    ...(rawEdition ? { edition: rawEdition } : {}),
+  }
 }
 
 /** DSH_RUNTIME_URL overrides the bundled runtime.json. */

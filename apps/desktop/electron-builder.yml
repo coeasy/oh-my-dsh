@@ -16,12 +16,16 @@ extraResources:
     to: embedded-client.js
   - from: out/plugin-marketplace
     to: plugin-marketplace
+  - from: out/bundled-plugins
+    to: bundled-plugins
   - from: runtime.json
     to: runtime.json
   - from: splash.html
     to: splash.html
   - from: setup.html
     to: setup.html
+  - from: plugin-ui
+    to: plugin-ui
   - from: ../../runtime/payload/origin.json
     to: runtime/origin.json
   - from: env.example
@@ -36,7 +40,8 @@ extraFiles:
 afterPack: after-pack.cjs
 # maximum yields no size win here: the payload is already source+node_modules
 # (mostly incompressible) and makes NSIS/portable builds ~5x slower. The real
-# size fix is removing the bundled harness (see docs/optimization/optimization-size.md).
+# The system-runtime edition removes the bundled harness; see
+# apps/desktop/electron-builder-online.yml and docs/roadmap.md.
 compression: normal
 # Only ship the locales the UI actually uses (Chromium ships ~70 locales, ~45MB).
 electronLanguages:
@@ -95,6 +100,7 @@ linux:
   icon: build/icon.png
   artifactName: my-dsh-${version}-linux.${ext}
   category: Development
+  syncDesktopName: true
   extraResources:
     - from: ../../runtime/payload/node
       to: runtime/node

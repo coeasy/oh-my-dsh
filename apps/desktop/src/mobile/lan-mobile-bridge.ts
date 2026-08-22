@@ -13,6 +13,7 @@ import {
 
 const MAX_BODY_BYTES = 64 * 1024
 const PAIRING_TTL_MS = 5 * 60 * 1000
+const MAX_PENDING_PAIRINGS = 32
 
 const RPC_ALLOWLIST = new Set([
   'workspace.list',
@@ -84,6 +85,21 @@ export class LanMobileBridge {
     await new Promise<void>((resolve, reject) => {
       this.server?.once('error', reject)
       this.server?.listen(this.options.port ?? 0, '0.0.0.0', resolve)
+    }).catch(async (error: unknown) => {
+      const server = this.server
+      this.server = undefined
+      this.port = undefined
+      this.pairingToken = undefined
+      this.pairingExpiresAt = undefined
+      this.pendingPairings.clear()
+      await new Promise<void>((resolve) => {
+        if (!server || !server.listening) {
+          resolve()
+          return
+        }
+        server.close(() => resolve())
+      })
+      throw error
     })
     this.port = (this.server.address() as AddressInfo).port
     return this.snapshot()
@@ -129,7 +145,7 @@ export class LanMobileBridge {
     response.setHeader('referrer-policy', 'no-referrer')
     response.setHeader(
       'content-security-policy',
-      "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+      "default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
     )
 
     const remoteAddress = normalizeRemoteAddress(request.socket.remoteAddress ?? '')
@@ -233,6 +249,12 @@ export class LanMobileBridge {
       }
       if (!this.validPairingToken(url.searchParams.get('token'))) {
         return this.text(response, 401, 'This pairing link is invalid or expired.')
+      }
+      for (const [id, pending] of this.pendingPairings) {
+        if (pending.expiresAt < this.now()) this.pendingPairings.delete(id)
+      }
+      if (this.pendingPairings.size >= MAX_PENDING_PAIRINGS) {
+        return this.text(response, 429, 'Too many pending pairing requests.')
       }
       const id = randomUUID()
       this.pendingPairings.set(id, {

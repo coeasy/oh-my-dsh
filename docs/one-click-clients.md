@@ -9,25 +9,25 @@
 Windows：
 
 ```powershell
-.\build-clients.cmd
-.\install-clients.cmd
+tools\build-clients.cmd
+tools\install-clients.cmd
 ```
 
 macOS / Linux：
 
 ```bash
-./build-clients.sh
-./install-clients.sh
+./tools/build-clients.sh
+./tools/install-clients.sh
 ```
 
 默认通道是 **stable**：GitHub 最新非预发布 Release；若当前只有 rc，则用最新 Release。需要本机已安装 Node.js 22+ 与 pnpm 10。
 
 ```powershell
-.\build-clients.cmd latest          # 含 rc 的最新 GitHub Release
-.\build-clients.cmd lock            # 只用 engine.lock.json
-.\build-clients.cmd master          # 钉死某个 git 分支或 tag
+.\tools\build-clients.cmd latest   # 含 rc 的最新 GitHub Release
+.\tools\build-clients.cmd lock     # 只用 engine.lock.json
+.\tools\build-clients.cmd master   # 钉死某个 git 分支或 tag
 $env:DSH_INSTALL = '1'
-.\build-clients.cmd                 # 打包后安装 VSIX
+.\tools\build-clients.cmd          # 打包后安装 VSIX
 $env:DSH_SKIP_ENGINE_BUILD = '1'    # 克隆已构建时跳过上游 pnpm build
 $env:DSH_CLIENTS = 'portable'       # 只要可双击的 portable exe
 ```
@@ -58,7 +58,7 @@ pnpm install:clients
 
 ```powershell
 $env:DSH_CLIENTS = "vscode,zip"
-.\build-clients.cmd
+.\tools\build-clients.cmd
 ```
 
 | 场景 | 本机 OS | 产物 |
@@ -72,7 +72,7 @@ $env:DSH_CLIENTS = "vscode,zip"
 
 ## 安装到本机
 
-`.\install-clients.cmd` 或 `./install-clients.sh` 把最新 VSIX 装进 PATH 上的 `cursor` 和/或 `code`。桌面安装包只打印路径；设 `DSH_INSTALL_DESKTOP=1` 才会启动 NSIS。
+`tools\install-clients.cmd` 或 `./tools/install-clients.sh` 把最新 VSIX 装进 PATH 上的 `cursor` 和/或 `code`。桌面安装包只打印路径；设 `DSH_INSTALL_DESKTOP=1` 才会启动 NSIS。
 
 ## 第三方使用产物
 

@@ -7,8 +7,11 @@ import {
   dshHomeOf,
   expandHomePath,
   isInstalled,
+  isGithubRepo,
+  isSafeProfileName,
   profileDirOf,
   readOfficialState,
+  safeExternalUrl,
   type OfficialState,
   type RegistryEntry,
 } from '../src/registry.ts'
@@ -70,6 +73,40 @@ describe('profileDirOf', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
+  })
+
+  it('rejects traversal and separator-containing profile names', () => {
+    assert.equal(isSafeProfileName('web'), true)
+    assert.equal(isSafeProfileName('../outside'), false)
+    assert.equal(isSafeProfileName('a/b'), false)
+    assert.throws(() => profileDirOf('../outside', '/tmp/dsh-home'), /invalid profile name/)
+  })
+})
+
+describe('isGithubRepo', () => {
+  it('accepts owner/repository and rejects URL/path injection', () => {
+    assert.equal(isGithubRepo('coeasy/oh-my-dsh'), true)
+    assert.equal(isGithubRepo('owner/repo.git'), true)
+    assert.equal(isGithubRepo('https://github.com/owner/repo'), false)
+    assert.equal(isGithubRepo('../outside'), false)
+    assert.equal(isGithubRepo('owner/repo?x=1'), false)
+  })
+})
+
+describe('safeExternalUrl', () => {
+  it('keeps only HTTPS metadata links', () => {
+    assert.equal(
+      safeExternalUrl('https://example.com/docs', 'https://github.com/x/y'),
+      'https://example.com/docs',
+    )
+    assert.equal(
+      safeExternalUrl('javascript:alert(1)', 'https://github.com/x/y'),
+      'https://github.com/x/y',
+    )
+    assert.equal(
+      safeExternalUrl('http://example.com', 'https://github.com/x/y'),
+      'https://github.com/x/y',
+    )
   })
 })
 

@@ -1,0 +1,94 @@
+# Slim/system-runtime edition. This is intentionally self-contained instead
+# of extending electron-builder.yml: electron-builder merges platform arrays
+# from an extended config, which can silently re-introduce bundled node/dsh
+# files into the online package.
+appId: com.mydsh.desktop
+productName: my-dsh
+copyright: my-dsh client pack
+asar: true
+extraMetadata:
+  name: my-dsh
+  dshEdition: system
+icon: build/icon.png
+directories:
+  output: dist
+files:
+  - out/main.js
+  - out/preload.cjs
+  - package.json
+extraResources:
+  - from: out/embedded-client.js
+    to: embedded-client.js
+  - from: out/plugin-marketplace
+    to: plugin-marketplace
+  - from: out/bundled-plugins
+    to: bundled-plugins
+  - from: plugin-ui
+    to: plugin-ui
+  - from: runtime-system.json
+    to: runtime.json
+  - from: splash.html
+    to: splash.html
+  - from: setup.html
+    to: setup.html
+  - from: env.example
+    to: env.example
+  - from: build/icon.png
+    to: icon.png
+extraFiles:
+  - from: ../../LICENSE
+    to: LICENSE
+  - from: ../../NOTICE
+    to: NOTICE
+afterPack: after-pack-online.cjs
+compression: normal
+electronLanguages:
+  - en-US
+  - zh-CN
+publish:
+  provider: github
+  owner: ${env.GH_OWNER:-dsh-client}
+  repo: ${env.GH_REPO:-my-dsh}
+  releaseType: release
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+win:
+  icon: build/icon.png
+  artifactName: my-dsh-online-${version}-win.${ext}
+  target:
+    - nsis
+    - portable
+    - zip
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  differentialPackage: false
+  artifactName: my-dsh-online-Setup-${version}.${ext}
+  runAfterFinish: true
+portable:
+  artifactName: my-dsh-online-${version}-portable.exe
+  unpackDirName: my-dsh
+mac:
+  icon: build/icon.png
+  artifactName: my-dsh-online-${version}-mac.${ext}
+  category: public.app-category.developer-tools
+  identity: null
+  target:
+    - dmg
+    - zip
+linux:
+  icon: build/icon.png
+  artifactName: my-dsh-online-${version}-linux.${ext}
+  category: Development
+  syncDesktopName: true
+  target:
+    - AppImage
+    - zip

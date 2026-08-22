@@ -124,6 +124,40 @@ const EMPTY_RESULT = (clean: string, note: string): NpmVerifyResult => ({
   note,
 })
 
+const REGISTRY_RETRIES = 3
+const REGISTRY_RETRY_DELAY_MS = 350
+
+/**
+ * Query the npm `latest` endpoint with retries. npm's CDN (Fastly) responds
+ * 406/429/5xx to some well-formed requests (per-connection quirks, rate
+ * limits), so a single-shot lookup would randomly refuse installable
+ * packages. 404 is definitive and returned as-is; every other non-2xx and
+ * network error is retried with backoff before giving up.
+ */
+async function fetchRegistryLatest(
+  url: string,
+  timeoutMs: number,
+  retries = REGISTRY_RETRIES,
+): Promise<Response> {
+  let lastError: unknown = new Error('registry lookup failed')
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { accept: 'application/vnd.npm.install-v1+json' },
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (res.status === 404 || res.ok) return res
+      // 406/429/5xx — transient, back off and retry.
+      lastError = new Error(`HTTP ${res.status}`)
+      await new Promise((resolve) => setTimeout(resolve, REGISTRY_RETRY_DELAY_MS * attempt))
+    } catch (error) {
+      lastError = error
+      await new Promise((resolve) => setTimeout(resolve, REGISTRY_RETRY_DELAY_MS * attempt))
+    }
+  }
+  throw lastError
+}
+
 /**
  * Query the npm registry `latest` metadata for a package.
  * @param spec - npm package name (not a git/url spec).
@@ -140,27 +174,37 @@ export async function verifyNpmPackage(
     return EMPTY_RESULT(clean, '非法包名 / invalid package name')
   }
   try {
-    const res = await fetch(`https://registry.npmjs.org/${encodePkg(clean)}/latest`, {
-      headers: { accept: 'application/vnd.npm.install-v1+json' },
-      signal: AbortSignal.timeout(timeoutMs),
-    })
+    const res = await fetchRegistryLatest(
+      `https://registry.npmjs.org/${encodePkg(clean)}/latest`,
+      timeoutMs,
+    )
     if (!res.ok) {
-      // 404 → the name is not taken; not a squat risk, but not installable as npm either.
-      return {
-        ok: true,
-        exists: false,
-        name: clean,
-        latest: null,
-        repository: null,
-        homepage: null,
-        integrity: null,
-        tarball: null,
-        maintainers: [],
-        publisherKnown: false,
-        lifecycle: [],
-        squat: false,
-        note: 'npm registry 上不存在该包名 / package name not published on npm',
+      // 404 → the name is not taken; not a squat risk, but not installable as
+      // npm either. ANY other status (406/429/5xx) is a transient registry
+      // failure, NOT a "package missing" verdict — mark it as a lookup
+      // failure (ok:false) so the install route can tell the user to retry
+      // instead of refusing an installable package.
+      if (res.status === 404) {
+        return {
+          ok: true,
+          exists: false,
+          name: clean,
+          latest: null,
+          repository: null,
+          homepage: null,
+          integrity: null,
+          tarball: null,
+          maintainers: [],
+          publisherKnown: false,
+          lifecycle: [],
+          squat: false,
+          note: 'npm registry 上不存在该包名 / package name not published on npm',
+        }
       }
+      return EMPTY_RESULT(
+        clean,
+        `npm registry 查询失败 HTTP ${res.status}（非包名不存在，请重试）/ registry lookup HTTP ${res.status} (transient; retry)`,
+      )
     }
     const d = (await res.json()) as {
       name?: unknown

@@ -1,0 +1,7 @@
+# @dsh/plugin-model-config bundle patch: registers this plugin into a profile's layer
+# stack when installed via the official CLI:
+#   dsh plugin --profile web add @dsh/plugin-model-config
+# The dsh CLI reconciles this declaration into dsh.profile.bundles.
+- insert:
+    - id: model-config
+      name: "@dsh/plugin-model-config"

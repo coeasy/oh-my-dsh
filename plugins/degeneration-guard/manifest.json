@@ -1,0 +1,17 @@
+{
+  "id": "com.my-dsh.degeneration-guard",
+  "name": "Degeneration Guard",
+  "version": "0.1.0",
+  "api_version": "plugin.host.v1",
+  "targets": ["desktop", "vscode"],
+  "permissions": [
+    "session.observe",
+    "agent.interrupt",
+    "events.subscribe",
+    "ui.mount"
+  ],
+  "host_entry": "src/index.ts",
+  "ui_entry": "ui/bundle.js",
+  "schema_version": 1,
+  "signature": ""
+}

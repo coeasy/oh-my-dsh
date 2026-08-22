@@ -1,7 +1,11 @@
 export const HARNESS_WINDOW_TITLE = 'my-dsh'
 export const TITLE_BAR_OVERLAY_HEIGHT = 36
+// overflow:hidden pins the document to the window: the engine SPA scrolls its
+// own internal containers, so a body taller than the viewport (e.g. leftover
+// bottom padding for an overlay bar) must not resurrect a stray scrollbar on
+// the maximized window.
 export const FILL_VIEWPORT_CSS =
-  'html, body { margin: 0 !important; height: 100% !important; width: 100% !important; }'
+  'html, body { margin: 0 !important; height: 100% !important; width: 100% !important; overflow: hidden !important; }'
 
 /**
  * The native titleBarOverlay reserves the top `height` pixels as a window

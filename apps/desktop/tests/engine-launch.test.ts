@@ -54,6 +54,21 @@ describe('engine launch selection', () => {
     assert.equal(resolved.dshCommand?.replace(/\\/g, '/'), 'C:/app/resources/runtime/dsh.cmd')
   })
 
+  it('uses the system CLI only for the explicit slim edition', () => {
+    const resolved = resolveEngineLaunch({
+      packaged: true,
+      resourcesPath: 'C:\\app\\resources',
+      moduleDir,
+      repoRoot,
+      env: { DSH_BIN: 'D:\\tools\\dsh.cmd' },
+      runtime: { edition: 'system' },
+      exists: () => false,
+      platform: 'win32',
+    })
+    assert.equal(resolved.mode, 'local')
+    assert.equal(resolved.dshCommand, 'D:\\tools\\dsh.cmd')
+  })
+
   it('unpackaged DSH_RUNTIME=local still prefers the clone unless DSH_BIN is set', () => {
     const cloneBin = join(repoRoot, 'deepseek-harness', 'apps', 'cli', 'lib', 'bin.js')
     const resolved = resolveEngineLaunch({

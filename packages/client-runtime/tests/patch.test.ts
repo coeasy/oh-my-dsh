@@ -21,6 +21,13 @@ describe('patch overlay', () => {
     assert.match(yaml, /!!js process\.env\.DSH_READY_FILE/)
   })
 
+  it('encodes POSIX paths with the native file URL rules', () => {
+    assert.equal(
+      toPatchModuleName('/workspace/plugins/embedded-client/out/index file.js'),
+      'file:///workspace/plugins/embedded-client/out/index%20file.js',
+    )
+  })
+
   it('rejects an empty plugin path', () => {
     assert.throws(() => buildPatchYaml(''), /empty/)
   })

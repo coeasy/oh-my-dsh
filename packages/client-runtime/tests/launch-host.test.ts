@@ -1,10 +1,30 @@
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
-import { launchHost } from '../src/spawn-host.ts'
+import { appendOutputTail, launchHost, rotateLogFile } from '../src/spawn-host.ts'
+
+describe('bounded runtime logs', () => {
+  it('keeps only the configured in-memory tail', () => {
+    const value = appendOutputTail('1234', '56789', 5)
+    assert.equal(value, '56789')
+  })
+
+  it('rotates a full log before appending', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-log-'))
+    const log = join(dir, 'harness.log')
+    try {
+      writeFileSync(log, '123456', 'utf8')
+      rotateLogFile(log, 5)
+      assert.equal(existsSync(log), false)
+      assert.equal(readFileSync(`${log}.1`, 'utf8'), '123456')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
 
 function writeFakeDshLauncher(): { command: string; dir: string } {
   const scriptPath = fileURLToPath(new URL('../../../scripts/fake-dsh.mjs', import.meta.url))
@@ -35,7 +55,10 @@ describe('launchHost integration (fake-dsh)', () => {
       assert.equal(host.url, 'http://127.0.0.1:41234')
       assert.equal(host.port, 41234)
       assert.ok(host.pid > 0)
-      assert.ok(host.execPath)
+      // Some managed Node wrappers expose a bare `process.execPath` (for
+      // example `node`) rather than an absolute image path. In that case the
+      // shell fallback is intentional and there is no safe execPath to report.
+      if (isAbsolute(process.execPath)) assert.equal(host.execPath, process.execPath)
     } finally {
       await host?.stop()
       rmSync(dir, { recursive: true, force: true })

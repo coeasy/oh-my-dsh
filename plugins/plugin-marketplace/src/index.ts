@@ -9,10 +9,9 @@
  * Security: mutating routes accept same-origin loopback POSTs only.
  */
 
+import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   CURATED,
@@ -20,18 +19,38 @@ import {
   REDIRECTS,
   CATEGORIES,
   classify,
-  dshHomeOf,
   detectType,
   fetchReadme,
   isInstalled,
   profileDirOf,
   readOfficialState,
+  safeExternalUrl,
   type RegistryEntry,
 } from './registry.ts'
-import { childEnv, installSpecOf, runPluginCommand, type RunResult } from './install.ts'
-import { loadCatalog, scanSource } from './catalog.ts'
+import {
+  childEnv,
+  homeMatrix,
+  installSpecOf,
+  isNpmSpec,
+  runOfficialAdd,
+  runPluginCommand,
+  syncAllMirrors,
+  syncToMirrors,
+  withSyncGate,
+  writePatchToggle,
+} from './install.ts'
+import type { MirrorSyncSummary } from './install.ts'
+import { isFirstPartyEntry, loadCatalog, paginateCatalog, resolveCatalogEntry, scanSource } from './catalog.ts'
+import { installFileTypeAtomic } from './file-installer.ts'
 import { verifyNpmPackage, verifyTarballIntegrity } from './verify.ts'
-import { buildBackup, restoreBackup, BACKUP_FORMAT, type BackupFile } from './backup.ts'
+import { validateInstalledBundle } from './bundle-check.ts'
+import {
+  BACKUP_FORMAT,
+  BACKUP_VERSION,
+  buildBackup,
+  restoreBackup,
+  type BackupFile,
+} from './backup.ts'
 import { uninstallApp, MARKET_PACKAGE } from './uninstall.ts'
 
 export const name = 'coeasy-market'
@@ -67,15 +86,35 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body))
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+const MAX_JSON_BODY_BYTES = 64 * 1024
+
+async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown> | null> {
   const chunks: Buffer[] = []
-  for await (const chunk of request) chunks.push(chunk as Buffer)
+  let size = 0
+  for await (const raw of request) {
+    const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw)
+    size += chunk.byteLength
+    if (size > MAX_JSON_BODY_BYTES) return null
+    chunks.push(chunk)
+  }
   if (chunks.length === 0) return {}
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
   } catch {
     return {}
   }
+}
+
+function requireJsonBody(
+  body: Record<string, unknown> | null,
+  response: ServerResponse,
+): body is Record<string, unknown> {
+  if (body !== null) return true
+  sendJson(response, 413, { error: 'request body too large' })
+  return false
 }
 
 function trustedRequest(request: IncomingMessage): boolean {
@@ -89,6 +128,15 @@ function trustedRequest(request: IncomingMessage): boolean {
   }
 }
 
+function brokerRequest(request: IncomingMessage): boolean {
+  const expected = process.env.DSH_MARKET_BROKER_TOKEN
+  const supplied = request.headers['x-dsh-market-broker']
+  if (!expected || typeof supplied !== 'string') return false
+  const left = Buffer.from(expected)
+  const right = Buffer.from(supplied)
+  return left.length === right.length && timingSafeEqual(left, right)
+}
+
 function requirePost(request: IncomingMessage, response: ServerResponse): boolean {
   if (request.method !== 'POST') {
     response.writeHead(405, { allow: 'POST' })
@@ -98,10 +146,8 @@ function requirePost(request: IncomingMessage, response: ServerResponse): boolea
   return true
 }
 
-function isNpmSpec(spec: string): boolean {
-  return /^(@[^/]+\/)?[\w.-]+$/.test(spec) && !spec.includes('/')
-    ? true
-    : /^@[^/]+\/[\w.-]+$/.test(spec)
+function isSafeBundleId(value: string): boolean {
+  return /^[A-Za-z0-9@._/-]{1,200}$/u.test(value)
 }
 
 function entryView(entry: RegistryEntry, state: ReturnType<typeof readOfficialState>) {
@@ -110,98 +156,194 @@ function entryView(entry: RegistryEntry, state: ReturnType<typeof readOfficialSt
   return {
     ...entry,
     full_name: fullName,
-    url: redirect ? `https://github.com/${fullName}` : entry.url,
+    url: redirect
+      ? `https://github.com/${fullName}`
+      : safeExternalUrl(entry.url, `https://github.com/${fullName}`),
     curated: CURATED.has(entry.full_name),
+    firstParty: isFirstPartyEntry(entry),
     installed: isInstalled(entry, state),
-    installSpec: installSpecOf(entry),
+    inBundles: state.bundles.some(
+      (bundle) => bundle === (entry.pkg_name || '') || bundle === entry.name || bundle === fullName,
+    ),
+    installSpec: installSpecOf({ ...entry, full_name: fullName }),
     type: detectType(entry),
     category: classify(entry),
   }
 }
 
-/* ---------- 热启停：写官方 cordis.patch.yml（唯一写入点） ---------- */
-
-function readPatch(profile: string, home?: string): string | null {
-  const p = join(profileDirOf(profile, home), 'cordis.patch.yml')
-  return existsSync(p) ? readFileSync(p, 'utf8') : null
+interface CatalogTarget {
+  fullName: string
+  entry: RegistryEntry
+  spec: string
+  type: ReturnType<typeof detectType>
 }
 
-/** Write a `disabled` toggle for one bundle id. Refuses to touch a patch that
- * contains any user-edited (non-empty, non-comment) content other than our
- * own toggle lines — protecting manual edits (plan §4.4). */
-function writeToggle(
+async function catalogTarget(body: Record<string, unknown>): Promise<CatalogTarget | undefined> {
+  const requested = typeof body.full_name === 'string' ? body.full_name.trim() : ''
+  const fullName = REDIRECTS.get(requested) ?? requested
+  const entry = await resolveCatalogEntry(fullName)
+  if (!entry) return undefined
+  return {
+    fullName,
+    entry,
+    spec: installSpecOf(entry),
+    type: detectType(entry),
+  }
+}
+
+async function installCatalogTarget(
+  target: CatalogTarget,
   profile: string,
   home: string | undefined,
-  bundleId: string,
-  disabled: boolean,
-): { ok: boolean; error?: string } {
-  const path = join(profileDirOf(profile, home), 'cordis.patch.yml')
-  const raw = readPatch(profile, home) ?? ''
-  const headerLines: string[] = []
-  let body = ''
-  for (const line of raw.split(/\r?\n/)) {
-    if (line.trim() === '' || line.trimStart().startsWith('#')) {
-      headerLines.push(line)
-      continue
+): Promise<{
+  status: number
+  body: Record<string, unknown>
+}> {
+  if (target.type === 'skill' || target.type === 'preset') {
+    const result = await installFileTypeAtomic(target.type, target.fullName, home)
+    // Broadcast file-type installs to every mirror home too (idempotent clone).
+    const mirrored =
+      result.code === 0
+        ? await syncToMirrors({
+            action: target.type,
+            fullName: target.fullName,
+            profile,
+            primary: home,
+          })
+        : { mirrors: [] }
+    return {
+      status: result.code === 0 ? 200 : 500,
+      body: {
+        ok: result.code === 0,
+        output: `${result.stdout}${result.stderr}`.slice(-8000),
+        mirrors: mirrored.mirrors,
+      },
     }
-    body += `${line}\n`
   }
-  // Find our toggle lines `- id: <bundleId>` (optionally followed by disabled:).
-  const own = new RegExp(
-    `-\\s*id:\\s*${bundleId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(?:\\r?\\n\\s*disabled:\\s*\\w+)?`,
-    'g',
-  )
-  const other = body.replace(own, '')
-  const residual = other.trim()
-  if (residual !== '' && residual !== '[]') {
-    return { ok: false, error: 'patch 文件包含手工条目，热启停已跳过（只读保护）' }
+  if (!isNpmSpec(target.spec)) {
+    return {
+      status: 400,
+      body: { ok: false, error: 'catalog entry has no verified npm package' },
+    }
   }
-  const header = headerLines.join('\n') + (headerLines.length ? '\n' : '')
-  const newBody = `- id: ${bundleId}\n  disabled: ${disabled}\n`
-  try {
-    writeFileSync(path, `${header}${newBody}`)
-    return { ok: true }
-  } catch (e) {
-    return { ok: false, error: `写入失败: ${String(e)}` }
+  const verify = await verifyNpmPackage(target.spec, target.fullName)
+  // Registry lookup itself failed (network / timeout / 5xx): that is NOT a
+  // verdict that the package is missing — tell the user to retry instead of
+  // refusing an installable package.
+  if (!verify.ok) {
+    return {
+      status: 503,
+      body: {
+        ok: false,
+        error: '插件包注册表暂不可用，请重试 / registry temporarily unavailable; retry',
+        output: verify.note || 'registry lookup failed',
+        verify,
+      },
+    }
   }
-}
-
-/* ---------- skill / preset 安装：官方目录，无脚本执行 ---------- */
-
-function installFileType(
-  type: 'skill' | 'preset',
-  fullName: string,
-  home: string | undefined,
-): Promise<RunResult> {
-  return new Promise((resolve) => {
-    const tmp = join(process.env.TEMP ?? '/tmp', `coeasy-${type}-${Date.now()}`)
-    const child = spawn(
-      'git',
-      ['clone', '--depth', '1', `https://github.com/${fullName}.git`, tmp],
-      { windowsHide: true },
-    )
-    child.on('close', (code) => {
-      if (code !== 0) {
-        rmSync(tmp, { recursive: true, force: true })
-        return resolve({ code: code ?? 1, stdout: '', stderr: `git clone 失败 (${code})` })
-      }
-      const homeDir = dshHomeOf(home)
-      const targetRoot =
-        type === 'skill' ? join(homeDir, 'skills') : join(homeDir, '.agent-presets')
-      const target = join(targetRoot, fullName.split('/').pop() ?? fullName)
-      try {
-        mkdirSync(targetRoot, { recursive: true })
-        rmSync(target, { recursive: true, force: true })
-        cpSync(tmp, target, { recursive: true })
-        rmSync(tmp, { recursive: true, force: true })
-        resolve({ code: 0, stdout: `installed ${type} → ${target}`, stderr: '' })
-      } catch (e) {
-        rmSync(tmp, { recursive: true, force: true })
-        resolve({ code: 1, stdout: '', stderr: `install 失败: ${String(e)}` })
-      }
-    })
+  // HTTP 404 — the package is definitively not published under this name.
+  if (!verify.exists) {
+    return {
+      status: 403,
+      body: {
+        ok: false,
+        error: 'catalog package identity could not be verified',
+        output: verify.note || 'registry identity is unavailable',
+        verify,
+      },
+    }
+  }
+  // squat / missing integrity metadata are WARNINGS, not blocks — verify.ts
+  // documents "we never block the official CLI, only inform", and the
+  // confirmation dialog already surfaces them. A bare pnpm install still gets
+  // pinned by the official bundles reconcile.
+  const tarball = await verifyTarballIntegrity({
+    tarball: verify.tarball,
+    integrity: verify.integrity,
   })
+  verify.tarballCheck = tarball.status
+  // Only a verified MISMATCH (tampering) is refused; 'unavailable' just means
+  // we could not complete the check (network / missing metadata) — surfacing
+  // it is enough, refusing it would block installs during network hiccups.
+  if (tarball.status === 'mismatch') {
+    return {
+      status: 403,
+      body: {
+        ok: false,
+        error: 'tarball integrity is not verified',
+        output: tarball.note,
+        verify,
+      },
+    }
+  }
+  const { result, registered, healed } = await runOfficialAdd(profile, target.spec, { home })
+  // Anti-brick: once registered, parse-check the module the engine will import.
+  // The engine is fail-loud — a bundle whose entry cannot even parse would take
+  // down the whole profile on next boot. Roll back through the official CLI.
+  let entryCheck: ReturnType<typeof validateInstalledBundle> | null = null
+  if (result.code === 0 && registered) {
+    entryCheck = validateInstalledBundle(profileDirOf(profile, home), target.spec)
+    if (!entryCheck.ok) {
+      const rollback = await runPluginCommand(profile, ['remove', target.spec], { home })
+      // Also remove from every mirror so a bad bundle can't brick another home.
+      const mirrored = await syncToMirrors({
+        action: 'remove',
+        spec: target.spec,
+        profile,
+        primary: home,
+      })
+      return {
+        status: 422,
+        body: {
+          ok: false,
+          error: '插件入口校验失败，已自动回滚（不会影响现有插件）',
+          spec: target.spec,
+          registered: false,
+          rolledBack: true,
+          rollbackCode: rollback.code,
+          entryCheck,
+          mirrors: mirrored.mirrors,
+          output:
+            `${result.stdout}${result.stderr}\n\n[entry check failed → rolled back]\n` +
+            entryCheck.errors.join('\n'),
+          verify,
+        },
+      }
+    }
+  }
+  // Broadcast the install to every mirror home (idempotent official replay).
+  const mirrored =
+    result.code === 0
+      ? await syncToMirrors({ action: 'add', spec: target.spec, profile, primary: home })
+      : { mirrors: [] }
+  const mirrorFailures = mirrored.mirrors.filter((m) => !m.ok)
+  return {
+    status: result.code === 0 ? 200 : 500,
+    body: {
+      ok: result.code === 0,
+      spec: target.spec,
+      registered,
+      healed,
+      entryCheck: entryCheck ? { ok: entryCheck.ok, errors: entryCheck.errors } : null,
+      // A cordis bundle only loads after the engine restarts; surface that
+      // so the user doesn't expect it in the live page.
+      restartRequired: registered,
+      output: `${result.stdout}${result.stderr}`.slice(-8000),
+      verify,
+      mirrors: mirrored.mirrors,
+      mirrorFailures,
+      mirrorNote:
+        mirrorFailures.length > 0
+          ? '主目录安装成功，但部分镜像目录同步失败（可稍后使用“同步”修复）'
+          : undefined,
+    },
+  }
 }
+
+/* ---------- 热启停：写官方 cordis.patch.yml ----------
+ * writePatchToggle now lives in install.ts (generalized to any home so it can
+ * be replayed against mirrors); the primary-home toggle route delegates to it.
+ */
 
 /* ---------- pnpm 保障 ---------- */
 
@@ -247,12 +389,19 @@ export function apply(ctx: Context, config: Config = {}): void {
           const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
           const refresh = url.searchParams.get('refresh') === '1'
           const source = url.searchParams.get('source') ?? 'all'
+          const page = Number(url.searchParams.get('page') ?? 1)
+          const pageSize = Number(url.searchParams.get('page_size') ?? 50)
+          const query = url.searchParams.get('q') ?? ''
+          // P0-4: “已安装” view — the server filters the FULL catalog (not just
+          // the first page) so installed cards (incl. first-party built-ins with
+          // stars: 0) surface reliably regardless of star ordering.
+          const installedOnly = url.searchParams.get('installed_only') === '1'
           const s = state()
+          const catalogFilter = (entry: RegistryEntry): boolean =>
+            !EXCLUDED.has(entry.full_name) && (!installedOnly || isInstalled(entry, s))
           if (source !== 'all') {
-            // Single-source request (progressive loading): scan only this
-            // adapter, bounded to MAX_PER_SOURCE, so the client can fill the
-            // list as each source arrives instead of waiting for all of them.
-            const { entries, sources } = await scanSource(source)
+            const { entries, sources } = await scanSource(source, refresh)
+            const result = paginateCatalog(entries.filter(catalogFilter), { page, pageSize, query })
             sendJson(response, 200, {
               profile,
               profileDir: profileDirOf(profile, home),
@@ -262,11 +411,20 @@ export function apply(ctx: Context, config: Config = {}): void {
               official: s,
               sources,
               source,
-              repos: entries.filter((e) => !EXCLUDED.has(e.full_name)).map((e) => entryView(e, s)),
+              page: result.page,
+              pageSize: result.pageSize,
+              total: result.total,
+              hasMore: result.hasMore,
+              repos: result.entries.map((entry) => entryView(entry, s)),
             })
             return
           }
           const index = await loadCatalog(refresh)
+          const result = paginateCatalog(index.entries.filter(catalogFilter), {
+            page,
+            pageSize,
+            query,
+          })
           sendJson(response, 200, {
             profile,
             profileDir: profileDirOf(profile, home),
@@ -276,9 +434,11 @@ export function apply(ctx: Context, config: Config = {}): void {
             official: s,
             sources: index.sources,
             source,
-            repos: index.entries
-              .filter((e) => !EXCLUDED.has(e.full_name))
-              .map((e) => entryView(e, s)),
+            page: result.page,
+            pageSize: result.pageSize,
+            total: result.total,
+            hasMore: result.hasMore,
+            repos: result.entries.map((entry) => entryView(entry, s)),
           })
         },
       }),
@@ -303,65 +463,16 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/install',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
           const body = await readJsonBody(request)
-          const spec = typeof body.spec === 'string' ? body.spec.trim() : ''
-          const type = typeof body.type === 'string' ? body.type : 'cordis'
-          if (spec === '' || /[;&|`$><\n]/.test(spec)) {
-            sendJson(response, 400, { error: 'invalid spec' })
-            return
-          }
-          if (type === 'skill' || type === 'preset') {
-            const repo = spec.replace(/^github:/, '')
-            const result = await installFileType(type as 'skill' | 'preset', repo, home)
-            return sendJson(response, result.code === 0 ? 200 : 500, {
-              ok: result.code === 0,
-              output: `${result.stdout}${result.stderr}`,
-              official: state(),
-            })
-          }
-          // P-B: verify npm-published specs before (and alongside) the install.
-          const verify =
-            isNpmSpec(spec) && type !== 'skill' && type !== 'preset'
-              ? await verifyNpmPackage(
-                  spec,
-                  typeof body.full_name === 'string' ? body.full_name : null,
-                )
-              : null
-          // C1 hard gate: the tarball must match the registry's dist.integrity
-          // before the official CLI runs. A mismatch is tampering — refuse.
-          if (verify?.integrity || verify?.tarball) {
-            const tarball = await verifyTarballIntegrity({
-              tarball: verify.tarball,
-              integrity: verify.integrity,
-            })
-            verify.tarballCheck = tarball.status
-            verify.note =
-              tarball.status === 'mismatch'
-                ? `${tarball.note}${verify.note ? `\n${verify.note}` : ''}`
-                : verify.note
-            if (tarball.status === 'mismatch') {
-              return sendJson(response, 403, {
-                ok: false,
-                spec,
-                error: 'integrity mismatch',
-                output: tarball.note,
-                official: state(),
-                verify,
-              })
-            }
-          }
-          const result = await runPluginCommand(profile, ['add', spec], { home })
-          sendJson(response, result.code === 0 ? 200 : 500, {
-            ok: result.code === 0,
-            spec,
-            output: `${result.stdout}${result.stderr}`.slice(-8000),
-            official: state(),
-            verify,
-          })
+          if (!requireJsonBody(body, response)) return
+          const target = await catalogTarget(body)
+          if (!target) return sendJson(response, 404, { error: 'catalog entry not found' })
+          const result = await installCatalogTarget(target, profile, home)
+          sendJson(response, result.status, { ...result.body, official: state() })
         },
       }),
 
@@ -369,21 +480,32 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/remove',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
           const body = await readJsonBody(request)
-          const pkg = typeof body.pkg === 'string' ? body.pkg.trim() : ''
-          if (pkg === '' || !/^[@\w./-]+$/.test(pkg)) {
+          if (!requireJsonBody(body, response)) return
+          const target = await catalogTarget(body)
+          if (!target) return sendJson(response, 404, { error: 'catalog entry not found' })
+          const pkg = target.entry.pkg_name || target.entry.name
+          if (!isNpmSpec(pkg)) {
             sendJson(response, 400, { error: 'invalid package' })
             return
           }
           const result = await runPluginCommand(profile, ['remove', pkg], { home })
+          // Broadcast the removal to every mirror (idempotent — a mirror that
+          // never had the package counts as converged).
+          const mirrored =
+            result.code === 0
+              ? await syncToMirrors({ action: 'remove', spec: pkg, profile, primary: home })
+              : { mirrors: [] }
           sendJson(response, result.code === 0 ? 200 : 500, {
             ok: result.code === 0,
             pkg,
             output: `${result.stdout}${result.stderr}`.slice(-8000),
+            mirrors: mirrored.mirrors,
+            mirrorFailures: mirrored.mirrors.filter((m) => !m.ok),
             official: state(),
           })
         },
@@ -394,23 +516,16 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/update',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
           const body = await readJsonBody(request)
-          const spec = typeof body.spec === 'string' ? body.spec.trim() : ''
-          if (spec === '') {
-            sendJson(response, 400, { error: 'invalid spec' })
-            return
-          }
-          const result = await runPluginCommand(profile, ['add', spec])
-          sendJson(response, result.code === 0 ? 200 : 500, {
-            ok: result.code === 0,
-            spec,
-            output: `${result.stdout}${result.stderr}`.slice(-8000),
-            official: state(),
-          })
+          if (!requireJsonBody(body, response)) return
+          const target = await catalogTarget(body)
+          if (!target) return sendJson(response, 404, { error: 'catalog entry not found' })
+          const result = await installCatalogTarget(target, profile, home)
+          sendJson(response, result.status, { ...result.body, official: state() })
         },
       }),
 
@@ -419,20 +534,35 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/toggle',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
           const body = await readJsonBody(request)
+          if (!requireJsonBody(body, response)) return
           const bundleId = typeof body.id === 'string' ? body.id : ''
           const disabled = Boolean(body.disabled)
-          if (bundleId === '') {
+          if (!isSafeBundleId(bundleId)) {
             sendJson(response, 400, { error: 'invalid id' })
             return
           }
-          const result = writeToggle(profile, home, bundleId, disabled)
+          const result = writePatchToggle(profile, home, bundleId, disabled)
           if (!result.ok) return sendJson(response, 409, { ok: false, error: result.error })
-          sendJson(response, 200, { ok: true, id: bundleId, disabled })
+          // Replay the disable/enable against every mirror's patch too.
+          const mirrored = await syncToMirrors({
+            action: 'toggle',
+            bundleId,
+            disabled,
+            profile,
+            primary: home,
+          })
+          sendJson(response, 200, {
+            ok: true,
+            id: bundleId,
+            disabled,
+            mirrors: mirrored.mirrors,
+            mirrorFailures: mirrored.mirrors.filter((m) => !m.ok),
+          })
         },
       }),
 
@@ -468,6 +598,78 @@ export function apply(ctx: Context, config: Config = {}): void {
         },
       }),
 
+      // Multi-home: the primary + mirror matrix (read-only consistency view).
+      webServer.register({
+        kind: 'exact',
+        path: '/coeasy-market/api/homes',
+        handler: (request, response) => {
+          if (request.method !== 'GET') {
+            response.writeHead(405, { allow: 'GET' })
+            response.end()
+            return
+          }
+          const matrix = homeMatrix(profile, { primary: home })
+          sendJson(response, 200, {
+            profile,
+            primary: matrix.primary,
+            homes: matrix.homes,
+            official: state(),
+          })
+        },
+      }),
+
+      // Multi-home: lazy repair — bring every mirror up to the primary's set.
+      webServer.register({
+        kind: 'exact',
+        path: '/coeasy-market/api/sync',
+        handler: async (request, response) => {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
+            sendJson(response, 403, { error: 'forbidden' })
+            return
+          }
+          const body = await readJsonBody(request)
+          if (!requireJsonBody(body, response)) return
+          const force = body.force === true
+          // Skip when already aligned unless explicitly forced. `extra` homes
+          // are intentionally richer — they need no repair; `missing`/`drifted`
+          // do (absent packages / version misalignment).
+          if (!force) {
+            const matrix = homeMatrix(profile, { primary: home })
+            if (matrix.homes.every((h) => h.status === 'in-sync' || h.status === 'extra')) {
+              sendJson(response, 200, {
+                ok: true,
+                skipped: true,
+                note: '所有镜像目录已与主目录同步',
+                homes: matrix.homes,
+              })
+              return
+            }
+          }
+          const gated = await withSyncGate(() => syncAllMirrors(profile, { primary: home }))
+          if (gated.skipped) {
+            sendJson(response, 409, {
+              ok: false,
+              skipped: true,
+              note: '已有同步任务进行中，请稍后重试',
+            })
+            return
+          }
+          const { results } = gated.value
+          const failures = results.filter((r) => !r.ok)
+          const drifted = results.filter((r) => (r.updated ?? []).length > 0)
+          sendJson(response, failures.length === 0 ? 200 : 500, {
+            ok: failures.length === 0,
+            results,
+            failures,
+            note: failures.length
+              ? '部分镜像目录同步失败，请查看结果'
+              : drifted.length
+                ? '镜像目录已对齐（含版本更新）'
+                : '所有镜像目录已与主目录同步',
+          })
+        },
+      }),
+
       // P-B: pre-install safety verification against the npm registry.
       webServer.register({
         kind: 'exact',
@@ -478,14 +680,18 @@ export function apply(ctx: Context, config: Config = {}): void {
             return
           }
           const body = await readJsonBody(request)
-          const spec = typeof body.spec === 'string' ? body.spec.trim() : ''
-          const fullName = typeof body.full_name === 'string' ? body.full_name : null
-          if (spec === '' || !isNpmSpec(spec)) {
+          if (!requireJsonBody(body, response)) return
+          const target = await catalogTarget(body)
+          if (!target || !isNpmSpec(target.spec)) {
             sendJson(response, 400, { error: 'invalid npm spec', verify: null })
             return
           }
-          const verify = await verifyNpmPackage(spec, fullName)
-          sendJson(response, 200, { spec, full_name: fullName, verify })
+          const verify = await verifyNpmPackage(target.spec, target.fullName)
+          sendJson(response, 200, {
+            spec: target.spec,
+            full_name: target.fullName,
+            verify,
+          })
         },
       }),
 
@@ -508,18 +714,41 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/restore',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
           const body = await readJsonBody(request)
+          if (!requireJsonBody(body, response)) return
           const backup = body.backup as BackupFile | undefined
-          if (!backup || backup.format !== BACKUP_FORMAT) {
+          if (!backup || backup.format !== BACKUP_FORMAT || backup.version !== BACKUP_VERSION) {
             sendJson(response, 400, { error: 'invalid backup format' })
             return
           }
           const result = await restoreBackup(profile, backup, home)
-          sendJson(response, result.ok ? 200 : 409, { ...result, official: state() })
+          // Restoring rewrites the primary's dependency set — lazily bring every
+          // mirror back onto it (add what the restored set needs; never remove).
+          let mirrorSummary:
+            | { ok: boolean; skipped?: boolean; results: MirrorSyncSummary[]; note: string }
+            | undefined
+          if (result.ok) {
+            const gated = await withSyncGate(() => syncAllMirrors(profile, { primary: home }))
+            if (!gated.skipped) {
+              const failures = gated.value.results.filter((r) => !r.ok)
+              mirrorSummary = {
+                ok: failures.length === 0,
+                results: gated.value.results,
+                note: failures.length
+                  ? '镜像目录补齐部分失败，可稍后手动同步'
+                  : '镜像目录已随恢复结果同步',
+              }
+            }
+          }
+          sendJson(response, result.ok ? 200 : 409, {
+            ...result,
+            mirrorSummary,
+            official: state(),
+          })
         },
       }),
 
@@ -528,7 +757,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/uninstall-market',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
@@ -546,7 +775,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         kind: 'exact',
         path: '/coeasy-market/api/uninstall-app',
         handler: async (request, response) => {
-          if (!requirePost(request, response) || !trustedRequest(request)) {
+          if (!requirePost(request, response) || !brokerRequest(request)) {
             sendJson(response, 403, { error: 'forbidden' })
             return
           }
@@ -602,6 +831,8 @@ export function apply(ctx: Context, config: Config = {}): void {
             // Bundle order == load order.
             loadOrder: s.bundles,
             sources: index.sources,
+            // Multi-home consistency matrix (primary vs mirrors).
+            homes: homeMatrix(profile, { primary: home }).homes,
           })
         },
       }),

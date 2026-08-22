@@ -42,6 +42,15 @@ export function harnessComplete(root) {
   )
 }
 
+/** Resolve robocopy to its System32 absolute path so it works even when the
+ * caller's PATH (e.g. Git Bash or a packaged Electron asar) does not include
+ * System32. Falls back to the bare command name. */
+export function resolveRobocopy() {
+  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows'
+  const candidate = join(root, 'System32', 'robocopy.exe')
+  return existsSync(candidate) ? candidate : 'robocopy'
+}
+
 /** True for file/dir symlinks and Windows junctions. */
 export function isReparsePath(path) {
   if (!existsSync(path)) return false
@@ -73,11 +82,18 @@ function robocopyLinkCopy(src, dest, extraXd = []) {
   if (extraXd.length > 0) {
     args.push('/XD', ...extraXd)
   }
-  const copied = spawnSync('robocopy', args, {
+  const copied = spawnSync(resolveRobocopy(), args, {
     encoding: 'utf8',
     windowsHide: true,
     timeout: 1_800_000,
   })
+  if (copied.error) {
+    // spawnSync failed to even launch robocopy (e.g. ENOENT): surface it
+    // instead of silently returning an empty/partial dest.
+    throw new Error(`robocopy /SL failed to spawn (${copied.error.message})`)
+  }
+  // robocopy exit codes: 0-7 success, >=8 failure (see docs). status may be
+  // null if the process was killed or never started.
   if ((copied.status ?? 1) >= 8) {
     throw new Error(`robocopy /SL failed (exit ${copied.status})`)
   }

@@ -1,5 +1,14 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   app,
@@ -9,8 +18,10 @@ import {
   Menu,
   nativeTheme,
   net,
+  screen,
   shell,
   type MessageBoxOptions,
+  WebContentsView,
 } from 'electron'
 import {
   assertLoopbackUrl,
@@ -21,18 +32,61 @@ import {
   type RunningHost,
 } from '@dsh/client-runtime'
 import { hasDeepSeekApiKey, upsertEnvKey } from './api-key.ts'
+import { normalizeEngineJunction } from './engine-junction.ts'
+import { checkForAppUpdates } from './app-update-service.ts'
 import { createStatusTray, type StatusTray } from './app-tray.ts'
-import { installMarket, isMarketInstalled, killBootstrapProcesses } from './market-bootstrap.ts'
+import {
+  installMarket,
+  isMarketInstalled,
+  killBootstrapProcesses,
+  marketBundledVersion,
+  marketNeedsRefresh,
+  refreshMarket,
+} from './market-bootstrap.ts'
+import { executeMarketBrokerAction, type MarketActionRequest } from './market-broker.ts'
+import {
+  ensureFirstPartyPlugins,
+  firstPartyPluginsFromRepo,
+  firstPartyPluginsFromResources,
+} from './first-party-plugins.ts'
+import {
+  disableCommunityBundles,
+  disableNewestCommunityBundlesMany,
+} from './plugin-recovery.ts'
+import {
+  discoverHarnessHomes,
+  importHarnessHome,
+  resolveHarnessHome,
+  resolvePluginHomes,
+  type HarnessHomeMode,
+} from './harness-home.ts'
+import {
+  dispatchUsageAnalyticsAction,
+  setUsageAnalyticsHttpClient,
+} from './plugins/usage-analytics-host.ts'
+import { dispatchModelConfigAction, setModelConfigHttpClient } from './plugins/model-config-host.ts'
+import {
+  dispatchDegenerationGuardAction,
+  setDegenerationGuardHttpClient,
+} from './plugins/degeneration-guard-host.ts'
+import { modelConfigPageHtml } from './plugins/model-config-ui-page.ts'
+import { guardPageHtml } from './plugins/degeneration-guard-ui-page.ts'
+import { usageAnalyticsPageHtml } from './plugins/usage-analytics-ui-page.ts'
 import type { RuntimeSnapshot } from './contracts.ts'
 import { buildDiagnosticsReport } from './diagnostics.ts'
-import { loadDesktopSettings, saveDesktopSettings } from './desktop-settings.ts'
+import {
+  loadDesktopSettings,
+  saveDesktopSettings,
+  type DesktopSettings,
+  type WindowBounds,
+} from './desktop-settings.ts'
 import {
   buildHarnessSpawnOptions,
   loadDotEnvFile,
   resolveSidecarDotEnvPath,
   sanitizeBundledSpawnEnv,
 } from './harness-env.ts'
-import { ensureLaunchRoot, harnessHomePath, desktopUserDataPath } from './launch-root.ts'
+import { ensureLaunchRoot, desktopUserDataPath } from './launch-root.ts'
 import { LanMobileBridge } from './mobile/lan-mobile-bridge.ts'
 import {
   parseRuntimeFile,
@@ -77,6 +131,14 @@ let quitting = false
 let forceExiting = false
 let failureDialogVisible = false
 let setupWaiter: ((result: { workspace: string; apiKey: string }) => void) | undefined
+let marketBrokerToken = ''
+// Boot fusing: how many community bundles were auto-disabled this session so a
+// bad plugin can't brick the engine (fail-loud) while good plugins survive.
+let bootFuseSteps = 0
+const MAX_AUTO_FUSE_STEPS = 3
+/** Launch failures that smell like a bad plugin vs. a runtime/network issue. */
+const PLUGIN_FAILURE_HINTS =
+  /plugin tree failed|failed to load|failed to import loader entry|failed to apply loader entry|cannot resolve profile bundle|failed to activate|fatal load failure/i
 
 function moduleDir(): string {
   return dirname(fileURLToPath(import.meta.url))
@@ -132,6 +194,7 @@ function migrateLegacyUserData(): void {
     mkdirSync(dirname(dest), { recursive: true })
     try {
       cpSync(src, dest, { recursive: true, force: true })
+      if (relative.endsWith('.env')) chmodSync(dest, 0o600)
     } catch (error) {
       console.error(`[my-dsh] migration skipped ${relative}`, error)
     }
@@ -193,12 +256,25 @@ function launchStageMessage(stage: string): string {
   return harnessLocale() === 'zh' ? label.zh : label.en
 }
 
+/**
+ * The harness home the client actually runs, honoring the `harnessHome`
+ * setting (auto/custom/official/explicit path). Every subsystem (launch,
+ * marketplace install, boot-fusing) must use THIS so they never diverge.
+ */
+function effectiveHarnessHome(): string {
+  const settings = loadDesktopSettings(app.getPath('userData'))
+  return resolveHarnessHome(
+    (settings.harnessHome as HarnessHomeMode | undefined) ?? 'auto',
+    app.getPath('userData'),
+  )
+}
+
 function sidecarDotEnvPath(): string {
   return resolveSidecarDotEnvPath(dirname(app.getPath('exe')), process.env.PORTABLE_EXECUTABLE_DIR)
 }
 
 function currentApiKeyPresent(): boolean {
-  const dshHome = harnessHomePath(app.getPath('userData'))
+  const dshHome = effectiveHarnessHome()
   return (
     hasDeepSeekApiKey(process.env) ||
     hasDeepSeekApiKey(loadDotEnvFile(sidecarDotEnvPath())) ||
@@ -209,11 +285,12 @@ function currentApiKeyPresent(): boolean {
 function persistApiKey(apiKey: string): void {
   const trimmed = apiKey.trim()
   if (!trimmed) return
-  const dshHome = harnessHomePath(app.getPath('userData'))
+  const dshHome = effectiveHarnessHome()
   mkdirSync(dshHome, { recursive: true })
   const dest = join(dshHome, '.env')
   const previous = existsSync(dest) ? readFileSync(dest, 'utf8') : ''
   writeFileSync(dest, upsertEnvKey(previous, 'DEEPSEEK_API_KEY', trimmed), 'utf8')
+  chmodSync(dest, 0o600)
 }
 
 function publishSnapshot(next: RuntimeSnapshot): void {
@@ -259,6 +336,7 @@ function dismissUi(): void {
     // tray already gone
   }
   statusTray = undefined
+  closeAllPluginConfigWindows()
   if (mobileWindow && !mobileWindow.isDestroyed()) mobileWindow.destroy()
   mobileWindow = undefined
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -307,6 +385,67 @@ async function quitAll(): Promise<void> {
   }
 }
 
+/**
+ * P0-2: sanitize persisted window geometry against the CURRENT display layout.
+ * A saved window that would be mostly off-screen (e.g. an external monitor was
+ * unplugged) is discarded so the app falls back to maximize instead of
+ * reopening somewhere the user cannot see it.
+ */
+function usableWindowBounds(bounds: WindowBounds | undefined): WindowBounds | undefined {
+  if (
+    !bounds ||
+    typeof bounds.width !== 'number' ||
+    typeof bounds.height !== 'number'
+  ) {
+    return undefined
+  }
+  const MIN_VISIBLE = 80
+  const wa = screen.getDisplayMatching({
+    x: bounds.x ?? 0,
+    y: bounds.y ?? 0,
+    width: bounds.width,
+    height: bounds.height,
+  }).workArea
+  if (bounds.x !== undefined && bounds.y !== undefined) {
+    const visibleW =
+      Math.min(bounds.x + bounds.width, wa.x + wa.width) - Math.max(bounds.x, wa.x)
+    const visibleH =
+      Math.min(bounds.y + bounds.height, wa.y + wa.height) - Math.max(bounds.y, wa.y)
+    if (visibleW < MIN_VISIBLE || visibleH < MIN_VISIBLE) return undefined
+  }
+  return bounds
+}
+
+/**
+ * P0-2: persist window geometry + maximized state (debounced 300ms) so the
+ * next launch restores the same size/position, honoring “maximize on boot”.
+ */
+function watchWindowBounds(window: BrowserWindow): void {
+  let timer: NodeJS.Timeout | null = null
+  const persist = (): void => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      if (window.isDestroyed()) return
+      const b = window.getNormalBounds()
+      const maximized = window.isMaximized()
+      saveDesktopSettings(app.getPath('userData'), {
+        ...loadDesktopSettings(app.getPath('userData')),
+        windowBounds: {
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          height: b.height,
+          maximized,
+        },
+      })
+    }, 300)
+  }
+  window.on('resize', persist)
+  window.on('move', persist)
+  window.on('maximize', persist)
+  window.on('unmaximize', persist)
+}
+
 function createWindow(): BrowserWindow {
   const dark = nativeTheme.shouldUseDarkColors
   const chrome = desktopChromeOptions(dark)
@@ -317,11 +456,15 @@ function createWindow(): BrowserWindow {
     sandbox: true,
     webSecurity: true,
   }
+  // P0-2: restore persisted bounds (fall back to maximize on first launch).
+  const saved = usableWindowBounds(loadDesktopSettings(app.getPath('userData')).windowBounds)
   let window: BrowserWindow
   try {
     window = new BrowserWindow({
-      width: 1380,
-      height: 900,
+      width: saved?.width ?? 1380,
+      height: saved?.height ?? 900,
+      x: saved?.x,
+      y: saved?.y,
       minWidth: 900,
       minHeight: 640,
       show: false,
@@ -330,8 +473,10 @@ function createWindow(): BrowserWindow {
     })
   } catch {
     window = new BrowserWindow({
-      width: 1380,
-      height: 900,
+      width: saved?.width ?? 1380,
+      height: saved?.height ?? 900,
+      x: saved?.x,
+      y: saved?.y,
       minWidth: 900,
       minHeight: 640,
       show: false,
@@ -341,7 +486,15 @@ function createWindow(): BrowserWindow {
       webPreferences,
     })
   }
+  // No usable saved geometry (first run, or it fell off-screen) → maximize;
+  // a saved maximized state is restored right after construction.
+  if (!saved || saved.maximized) window.maximize()
   window.setMenuBarVisibility(false)
+  watchWindowBounds(window)
+  // In-window plugin panels must track the window geometry (resize / maximize).
+  window.on('resize', () => layoutPluginConfigViews())
+  window.on('maximize', () => layoutPluginConfigViews())
+  window.on('unmaximize', () => layoutPluginConfigViews())
   window.on('page-title-updated', (event) => {
     event.preventDefault()
     window.setTitle(HARNESS_WINDOW_TITLE)
@@ -350,7 +503,11 @@ function createWindow(): BrowserWindow {
     void window.webContents.insertCSS(FILL_VIEWPORT_CSS)
     void window.webContents.insertCSS(NO_DRAG_INTERACTIVES_CSS)
   })
-  secureWindow(window)
+  secureWindow(
+    window,
+    [desktopResourcePath('splash.html'), desktopResourcePath('setup.html')],
+    () => (lastSnapshot.url ? [new URL(lastSnapshot.url).origin] : []),
+  )
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = undefined
   })
@@ -396,6 +553,92 @@ function showUnexpectedError(error: unknown): void {
   dialog.showErrorBox('my-dsh encountered an error', message)
 }
 
+/**
+ * Ensure the bundled marketplace is installed AND matches this client build
+ * in EVERY plugin home (primary + mirrors): a stale build is refreshed via
+ * official CLI remove+add (the version fingerprint from
+ * scripts/bump-version.mjs changed → pnpm re-snapshots the file: dep), a
+ * missing market is first-run installed. The primary respects an intentional
+ * uninstall (marketUserRemoved); mirrors are independent (a removed primary
+ * market never silently kills another home's market). Best-effort per home.
+ */
+async function ensureMarketFreshness(
+  dshCommand: string,
+  marketPath: string,
+  homes: string[],
+  settings: DesktopSettings,
+): Promise<{ primaryFirstInstall: boolean }> {
+  const bundledVersion = marketBundledVersion(marketPath)
+  let primaryFirstInstall = false
+  for (let index = 0; index < homes.length; index++) {
+    const home = homes[index]
+    const isPrimary = index === 0
+    if (isPrimary && settings.marketUserRemoved) continue
+    try {
+      if (marketNeedsRefresh(home, bundledVersion)) {
+        const boot = await refreshMarket(dshCommand, marketPath, home)
+        if (boot.ok) {
+          logInfo(`marketplace refreshed → build ${bundledVersion} @ ${home}`)
+          if (isPrimary) {
+            saveDesktopSettings(app.getPath('userData'), {
+              ...loadDesktopSettings(app.getPath('userData')),
+              marketEverInstalled: true,
+            })
+          }
+        } else {
+          logWarn(`marketplace refresh failed @ ${home}: ${boot.output}`)
+        }
+      } else if (!isMarketInstalled(home)) {
+        if (isPrimary && settings.marketEverInstalled) {
+          // Was auto-installed before but is now missing (removed via CLI).
+          saveDesktopSettings(app.getPath('userData'), { ...settings, marketUserRemoved: true })
+        } else {
+          const boot = await installMarket(dshCommand, marketPath, home)
+          if (boot.ok) {
+            if (isPrimary) {
+              primaryFirstInstall = true
+              saveDesktopSettings(app.getPath('userData'), {
+                ...loadDesktopSettings(app.getPath('userData')),
+                marketEverInstalled: true,
+              })
+            } else {
+              logInfo(`marketplace first-installed @ mirror ${home}`)
+            }
+          } else {
+            logWarn(`marketplace bootstrap failed @ ${home}: ${boot.output}`)
+          }
+        }
+      }
+    } catch (error) {
+      logWarn(`marketplace bootstrap error @ ${home}: ${String(error)}`)
+    }
+  }
+  return { primaryFirstInstall }
+}
+
+/**
+ * Lazy plugin-homes repair: ask the marketplace (inside the engine) to bring
+ * every mirror home up to the primary's plugin set. Fire-and-forget — a
+ * missing market or transient failure is logged, never fatal. Only called
+ * when the engine reports ready and there is at least one mirror.
+ */
+async function syncMarketHomes(harnessUrl: string, token: string): Promise<void> {
+  if (!token) return
+  const response = await net.fetch(new URL('/coeasy-market/api/sync', harnessUrl).href, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-dsh-market-broker': token,
+    },
+    body: JSON.stringify({ force: false }),
+    signal: AbortSignal.timeout(305_000),
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    logWarn(`market mirror sync returned ${response.status}: ${text.slice(0, 200)}`)
+  }
+}
+
 async function launchHarness(): Promise<void> {
   if (quitting) return
   publishSnapshot({ phase: 'starting', message: 'Starting my-dsh…', logs: [], launchDirectory })
@@ -412,6 +655,7 @@ async function launchHarness(): Promise<void> {
     moduleDir: moduleDir(),
     repoRoot: repoRoot(),
     env: process.env,
+    runtime: bundled,
   })
   if (engine.cloneBin && engine.dshCommand) {
     writeDevLauncher({ command: engine.dshCommand, cloneBin: engine.cloneBin })
@@ -424,7 +668,7 @@ async function launchHarness(): Promise<void> {
       moduleDir: moduleDir(),
     }),
   )
-  const dshHome = harnessHomePath(app.getPath('userData'))
+  const dshHome = effectiveHarnessHome()
   const sidecarEnv = loadDotEnvFile(sidecarDotEnvPath())
   const spawn = buildHarnessSpawnOptions(
     launchDirectory,
@@ -436,6 +680,43 @@ async function launchHarness(): Promise<void> {
   if (engine.mode === 'bundled' && spawn.env) {
     spawn.env = sanitizeBundledSpawnEnv(spawn.env)
   }
+  marketBrokerToken = randomBytes(32).toString('base64url')
+  // Plugin-homes sync matrix: the marketplace (running inside the engine)
+  // reads DSH_MARKET_MIRRORS to broadcast installs to every other home. Only
+  // re-evaluated at launch — changing pluginHomes needs a Harness restart.
+  const pluginHomes = resolvePluginHomes(
+    app.getPath('userData'),
+    loadDesktopSettings(app.getPath('userData')),
+  )
+  // Put the engine's own runtime directory on PATH so any process in the
+  // engine tree that shells out to a bare `dsh`/`dsh.cmd` launcher can resolve
+  // it. Without this the engine fails with “dsh.cmd is not recognized” and the
+  // client stalls waiting for ready.
+  const dshRuntimeDir = engine.dshCommand ? dirname(engine.dshCommand) : ''
+  spawn.env = {
+    ...(spawn.env ?? process.env),
+    DSH_MARKET_BROKER_TOKEN: marketBrokerToken,
+    DSH_MARKET_MIRRORS: JSON.stringify(pluginHomes.mirrors),
+    ...(dshRuntimeDir
+      ? {
+          PATH: `${dshRuntimeDir}${delimiter}${spawn.env?.PATH ?? process.env.PATH ?? ''}`,
+        }
+      : {}),
+  }
+  // Normalize the engine's profile junction to the current runtime BEFORE the
+  // engine spawns: a stale/mismatched junction is rebuilt by the engine on
+  // every boot, and two instances rebuilding it race into EPERM (symptom:
+  // “click the exe, nothing happens”). Best-effort, never fatal.
+  if (engine.mode === 'bundled' && dshRuntimeDir) {
+    const result = normalizeEngineJunction({
+      dshHome,
+      runtimeDir: dshRuntimeDir,
+      log: logInfo,
+    })
+    if (result.ok && result.action === 'repaired') {
+      logInfo('engine-junction: normalized before engine spawn')
+    }
+  }
   try {
     rememberEngine(
       await launchHost({
@@ -444,8 +725,11 @@ async function launchHarness(): Promise<void> {
         dshCommand: canonicalDshCommand ?? engine.dshCommand,
         downloadUrl: resolveDesktopDownloadUrl({ env: process.env, bundled }),
         pluginPath,
-        readyTimeoutMs: 180_000,
+        readyTimeoutMs: 90_000,
         logPath: harnessLogPath(),
+        // P0-1: the desktop client owns its window — never let the engine
+        // open a second copy in the default browser.
+        extraArgs: ['--no-open'],
         env: spawn.env,
         onProgress: (stage) => {
           const message = launchStageMessage(stage)
@@ -461,6 +745,19 @@ async function launchHarness(): Promise<void> {
     )
     if (!host || quitting) return
     assertLoopbackUrl(host.url)
+    bootFuseSteps = 0
+    setUsageAnalyticsHttpClient({
+      harnessUrl: host.url,
+      fetchImpl: (url, init) => net.fetch(url, init),
+    })
+    setModelConfigHttpClient({
+      harnessUrl: host.url,
+      fetchImpl: (url, init) => net.fetch(url, init),
+    })
+    setDegenerationGuardHttpClient({
+      harnessUrl: host.url,
+      fetchImpl: (url, init) => net.fetch(url, init),
+    })
     publishSnapshot({
       phase: 'ready',
       message: 'Harness is ready.',
@@ -468,58 +765,122 @@ async function launchHarness(): Promise<void> {
       launchDirectory,
       url: host.url,
     })
+    // Lazy plugin-homes repair: converge every mirror onto the primary set.
+    // Best-effort — never blocks launch, never fatal.
+    if (pluginHomes.mirrors.length > 0 && marketBrokerToken) {
+      void syncMarketHomes(host.url, marketBrokerToken).catch((error) =>
+        logWarn(`market mirror sync skipped: ${String(error)}`),
+      )
+    }
     await openHarness(host.url)
-    // First-run bootstrap: silently install the bundled official marketplace.
-    // Respects an intentional uninstall: never auto-reinstall once the user
-    // has removed it (marketEverInstalled + marketUserRemoved flags).
-    if (!quitting && engine.dshCommand && !isMarketInstalled(dshHome)) {
+    // Marketplace + first-party plugin bootstrap now runs in the BACKGROUND:
+    // the engine hot-reloads profile patch changes (Cordis HMR via
+    // watchUserPatches), so installs land on the already-live UI without a
+    // restart or reload. Launch returns the moment the UI is up — plugin
+    // provisioning never blocks the main window again.
+    if (!quitting && engine.dshCommand) {
+      const dshCommand = engine.dshCommand
       const userData = app.getPath('userData')
       const settings = loadDesktopSettings(userData)
-      try {
-        if (settings.marketUserRemoved) {
-          // User removed it intentionally — leave it out.
-        } else if (settings.marketEverInstalled) {
-          // Was auto-installed before but is now missing (removed via CLI).
-          saveDesktopSettings(userData, { ...settings, marketUserRemoved: true })
-        } else {
-          // First run: bundled marketplace ships with the client; fall back to
-          // the repo checkout in development so it works without publishing npm.
-          const marketPath = app.isPackaged
-            ? join(process.resourcesPath, 'plugin-marketplace')
-            : join(repoRoot(), 'plugins', 'plugin-marketplace')
-          const boot = await installMarket(engine.dshCommand, marketPath, dshHome)
-          if (boot.ok && !quitting) {
-            saveDesktopSettings(userData, {
-              ...loadDesktopSettings(userData),
-              marketEverInstalled: true,
-            })
-            const zh = harnessLocale() === 'zh'
-            const opts: Electron.MessageBoxOptions = {
-              type: 'info',
-              message: zh ? '已为你开启插件市场' : 'Plugin Marketplace enabled',
-              detail: zh
-                ? '在 设置 → 插件市场 中浏览并安装社区插件。'
-                : 'Browse and install community plugins under Settings → Marketplace.',
-            }
-            if (mainWindow && !mainWindow.isDestroyed())
-              await dialog.showMessageBox(mainWindow, opts)
-            else await dialog.showMessageBox(opts)
-          } else if (!boot.ok) {
-            logWarn(`marketplace bootstrap failed: ${boot.output}`)
+      const marketPath = app.isPackaged
+        ? join(process.resourcesPath, 'plugin-marketplace')
+        : join(repoRoot(), 'plugins', 'plugin-marketplace')
+      const firstParty = app.isPackaged
+        ? firstPartyPluginsFromResources(process.resourcesPath)
+        : firstPartyPluginsFromRepo(repoRoot())
+      const homes = [pluginHomes.primary, ...pluginHomes.mirrors]
+      void (async () => {
+        if (quitting) return
+        const { primaryFirstInstall } = await ensureMarketFreshness(
+          dshCommand,
+          marketPath,
+          homes,
+          settings,
+        )
+        if (primaryFirstInstall && !quitting) {
+          const zh = harnessLocale() === 'zh'
+          const opts: Electron.MessageBoxOptions = {
+            type: 'info',
+            message: zh ? '已为你开启插件市场' : 'Plugin Marketplace enabled',
+            detail: zh
+              ? '在 设置 → 插件市场 中浏览并安装社区插件。'
+              : 'Browse and install community plugins under Settings → Marketplace.',
           }
+          // Fire-and-forget: a modal here would block the background plugin
+          // provisioning below until the user clicks, so built-in plugins
+          // would never install on first launch.
+          void (mainWindow && !mainWindow.isDestroyed()
+            ? dialog.showMessageBox(mainWindow, opts)
+            : dialog.showMessageBox(opts)
+          ).catch(() => {})
         }
-      } catch (error) {
-        logWarn(`marketplace bootstrap error: ${String(error)}`)
-      }
+        if (quitting) return
+        // First-party built-in plugins bootstrap: ensure model-config /
+        // degeneration-guard / usage-analytics are installed (and current) in
+        // every plugin home, from the copy bundled with THIS client —
+        // portable across machines (resources when packaged, repo in dev).
+        await ensureFirstPartyPlugins(
+          dshCommand,
+          firstParty,
+          homes,
+          (level, message) => {
+            if (level === 'warn') logWarn(message)
+            else logInfo(message)
+          },
+        )
+      })().catch((error) => {
+        logWarn(`plugin bootstrap background task failed: ${String(error)}`)
+      })
     }
   } catch (error) {
     rememberEngine(undefined)
+    const message = error instanceof Error ? error.message : String(error)
     publishSnapshot({
       phase: 'failed',
-      message: error instanceof Error ? error.message : String(error),
+      message,
       logs: [],
       launchDirectory,
     })
+    // Auto boot-fusing: a freshly installed (broken) plugin fails the whole
+    // fail-loud engine boot. Disable the newest community bundle one at a time
+    // and retry, so every OTHER plugin keeps working. Only for plugin-like
+    // failures — a runtime/network issue must never silently disable plugins.
+    if (PLUGIN_FAILURE_HINTS.test(message) && bootFuseSteps < MAX_AUTO_FUSE_STEPS) {
+      // Fuse the same newest-bundle on primary AND every mirror, so a broken
+      // bundle can't keep another engine's home down either.
+      const pluginHomes = resolvePluginHomes(
+        app.getPath('userData'),
+        loadDesktopSettings(app.getPath('userData')),
+      )
+      const recovery = disableNewestCommunityBundlesMany([pluginHomes.primary, ...pluginHomes.mirrors])
+      const fused = recovery.results.filter((r) => r.ok && r.disabled.length > 0)
+      const allDisabled = fused.flatMap((r) => r.disabled)
+      if (allDisabled.length > 0) {
+        bootFuseSteps += allDisabled.length
+        logWarn(`boot fuse: disabled ${allDisabled.join(', ')} → retrying`)
+        const zh = harnessLocale() === 'zh'
+        await (mainWindow
+          ? dialog.showMessageBox(mainWindow, {
+              type: 'warning',
+              message: zh ? '已自动禁用故障插件，正在重试' : 'Disabled a broken plugin; retrying',
+              detail: zh
+                ? `已禁用：${allDisabled.join(', ')}。其他插件不受影响，可稍后在插件市场重新安装。`
+                : `Disabled: ${allDisabled.join(', ')}. Other plugins are unaffected; you can reinstall later.`,
+              buttons: ['OK'],
+            })
+          : dialog.showMessageBox({
+              type: 'warning',
+              message: zh ? '已自动禁用故障插件，正在重试' : 'Disabled a broken plugin; retrying',
+              detail: zh
+                ? `已禁用：${allDisabled.join(', ')}。其他插件不受影响，可稍后在插件市场重新安装。`
+                : `Disabled: ${allDisabled.join(', ')}. Other plugins are unaffected; you can reinstall later.`,
+              buttons: ['OK'],
+            }))
+        if (quitting) return
+        await launchHarness()
+        return
+      }
+    }
     await showRuntimeFailure(lastSnapshot)
   }
 }
@@ -541,9 +902,11 @@ async function showRuntimeFailure(snapshot: RuntimeSnapshot): Promise<void> {
           : zh
             ? '可以重试或查看 Harness 日志。'
             : 'You can retry or inspect the Harness log.',
-        buttons: zh ? ['重试', '查看日志', '退出'] : ['Retry', 'Show Log', 'Quit'],
+        buttons: zh
+          ? ['重试', '查看日志', '禁用新装插件并重试', '退出']
+          : ['Retry', 'Show Log', 'Disable new plugins & retry', 'Quit'],
         defaultId: 0,
-        cancelId: 2,
+        cancelId: 3,
         noLink: true,
       }
       const result = mainWindow
@@ -554,6 +917,30 @@ async function showRuntimeFailure(snapshot: RuntimeSnapshot): Promise<void> {
       } else if (result.response === 1) {
         shell.showItemInFolder(harnessLogPath())
         continue
+      } else if (result.response === 2) {
+        // A freshly installed (broken) plugin can brick the whole boot; drop
+        // non-core bundles and relaunch so the base layers come up. Apply to
+        // primary AND every mirror so all homes boot on base layers.
+        const pluginHomes = resolvePluginHomes(
+          app.getPath('userData'),
+          loadDesktopSettings(app.getPath('userData')),
+        )
+        const recovery = disableCommunityBundles(pluginHomes.primary)
+        for (const mirror of pluginHomes.mirrors)
+          disableCommunityBundles(mirror)
+        const detail = recovery.ok
+          ? zh
+            ? `已禁用：${recovery.disabled.join(', ')}（主目录 + ${pluginHomes.mirrors.length} 个镜像目录）。依赖保留，重新安装可再次注册。`
+            : `Disabled: ${recovery.disabled.join(', ')} (primary + ${pluginHomes.mirrors.length} mirror(s)). Dependencies kept; reinstall to re-register.`
+          : recovery.error ?? 'recovery failed'
+        const info: Electron.MessageBoxOptions = {
+          type: recovery.ok ? 'info' : 'warning',
+          message: zh ? '已禁用新装插件' : 'Community plugins disabled',
+          detail,
+          buttons: ['OK'],
+        }
+        await (mainWindow ? dialog.showMessageBox(mainWindow, info) : dialog.showMessageBox(info))
+        await launchHarness()
       } else {
         void quitAll()
       }
@@ -636,7 +1023,7 @@ async function showMobilePairing(): Promise<void> {
       webSecurity: true,
     },
   })
-  secureWindow(mobileWindow)
+  secureWindow(mobileWindow, [], [new URL(snapshot.desktopUrl).origin])
   mobileWindow.on('closed', () => {
     mobileWindow = undefined
   })
@@ -648,6 +1035,172 @@ async function showMobilePairing(): Promise<void> {
 async function stopMobileBridge(): Promise<void> {
   if (mobileWindow && !mobileWindow.isDestroyed()) mobileWindow.destroy()
   await mobileBridge?.stop()
+}
+
+/** In-window plugin panels (one WebContentsView per bundled first-party
+ * plugin), embedded into the main window so they no longer pop out as
+ * separate windows — consistent with how the market panel behaves. */
+const pluginConfigViews = new Map<string, WebContentsView>()
+let activePluginConfig: string | null = null
+
+/** Float a close button over an embedded plugin panel (replaces the OS
+ * titlebar close of the former standalone windows). */
+const PLUGIN_PANEL_CLOSE_CSS = `
+  #dsh-plugin-panel-close {
+    position: fixed; top: 10px; right: 10px; z-index: 2147483647;
+    width: 30px; height: 30px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(15,17,21,0.72); color: #c9d1d9;
+    border: 1px solid rgba(255,255,255,0.12); cursor: pointer;
+    font: 15px/1 system-ui, sans-serif; padding: 0;
+  }
+  #dsh-plugin-panel-close:hover { background: rgba(48,54,61,0.9); color: #fff; }
+`
+
+async function injectPluginPanelClose(webContents: Electron.WebContents): Promise<void> {
+  try {
+    await webContents.insertCSS(PLUGIN_PANEL_CLOSE_CSS)
+    await webContents.executeJavaScript(`
+      (function () {
+        if (document.getElementById('dsh-plugin-panel-close')) return;
+        var b = document.createElement('button');
+        b.id = 'dsh-plugin-panel-close';
+        b.type = 'button';
+        b.setAttribute('aria-label', '关闭');
+        b.title = '关闭';
+        b.textContent = '✕';
+        b.addEventListener('click', function () {
+          try {
+            window.dshDesktop && window.dshDesktop.pluginConfigClose && window.dshDesktop.pluginConfigClose();
+          } catch (e) {}
+        });
+        (document.body || document.documentElement).appendChild(b);
+      })();
+    `)
+  } catch {
+    // Panel may have been closed while injecting; ignore.
+  }
+}
+
+/** Lay out every visible plugin panel to fill the current main-window content
+ * area (called on open and on main-window resize/maximize). */
+function layoutPluginConfigViews(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const bounds = mainWindow.getContentBounds()
+  for (const view of pluginConfigViews.values()) {
+    if (view.webContents.isDestroyed()) continue
+    view.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height })
+  }
+}
+
+/** Hide all embedded plugin panels, returning focus to the engine page. */
+function hidePluginConfigViews(): void {
+  for (const view of pluginConfigViews.values()) {
+    if (view.webContents.isDestroyed()) continue
+    view.setVisible(false)
+  }
+  activePluginConfig = null
+  mainWindow?.focus()
+}
+
+const PLUGIN_CONFIG_PAGES: Record<
+  string,
+  {
+    html(bundlePath: string): string
+    title: string
+    width: number
+    height: number
+  }
+> = {
+  'model-config': {
+    html: (bundlePath) => modelConfigPageHtml(bundlePath),
+    get title() {
+      return harnessLocale() === 'zh' ? '模型配置' : 'Model Config'
+    },
+    width: 900,
+    height: 680,
+  },
+  'degeneration-guard': {
+    html: (bundlePath) => guardPageHtml(bundlePath),
+    get title() {
+      return harnessLocale() === 'zh' ? '退化防护' : 'Degeneration Guard'
+    },
+    width: 760,
+    height: 620,
+  },
+  'usage-analytics': {
+    html: (bundlePath) => usageAnalyticsPageHtml(bundlePath),
+    get title() {
+      return harnessLocale() === 'zh' ? '用量分析' : 'Usage Analytics'
+    },
+    width: 1080,
+    height: 720,
+  },
+}
+
+/** Open (or bring to front) the in-window panel for a bundled plugin. The page
+ * and its bundle are materialized under the userData dir so both load over
+ * file:// (CSP `script-src 'self'` holds within the same directory) and the
+ * existing file:// trust rules apply unchanged. */
+async function showPluginConfigView(plugin: string): Promise<void> {
+  const spec = PLUGIN_CONFIG_PAGES[plugin]
+  if (!spec) return
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  // Close whatever panel is currently open before stacking the new one.
+  if (activePluginConfig && activePluginConfig !== plugin) {
+    pluginConfigViews.get(activePluginConfig)?.setVisible(false)
+  }
+  const dir = join(app.getPath('userData'), 'plugin-ui')
+  mkdirSync(dir, { recursive: true })
+  const bundleSrc = desktopResourcePath(join('plugin-ui', `${plugin}.js`))
+  if (!existsSync(bundleSrc)) return
+  // Overwrite the cached bundle so UI fixes ship on next open (mirror-update).
+  cpSync(bundleSrc, join(dir, `${plugin}.js`), { force: true })
+  const htmlPath = join(dir, `${plugin}.html`)
+  writeFileSync(htmlPath, spec.html(`./${plugin}.js`), 'utf8')
+
+  let view = pluginConfigViews.get(plugin)
+  if (!view || view.webContents.isDestroyed()) {
+    view = new WebContentsView({
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        preload: preloadPath(),
+        sandbox: true,
+        webSecurity: true,
+      },
+    })
+    secureWindow(view, [dir], [])
+    pluginConfigViews.set(plugin, view)
+    try {
+      await view.webContents.loadFile(htmlPath)
+    } catch (error) {
+      if (isAbortedNavigationError(error)) return
+      throw error
+    }
+    if (view.webContents.isDestroyed()) return
+  }
+  // Float the close button. Idempotent, and re-run on every open: a cached
+  // panel that missed its injection (e.g. dom-ready already fired before the
+  // listener was attached) gets one on the next open.
+  void injectPluginPanelClose(view.webContents)
+  // Re-add to the top of the child-view stack so it sits above everything.
+  if (!mainWindow.contentView.children.includes(view)) {
+    mainWindow.contentView.addChildView(view)
+  } else {
+    mainWindow.contentView.removeChildView(view)
+    mainWindow.contentView.addChildView(view)
+  }
+  layoutPluginConfigViews()
+  view.setVisible(true)
+  activePluginConfig = plugin
+}
+
+function closeAllPluginConfigWindows(): void {
+  for (const window of pluginConfigWindows.values()) {
+    if (!window.isDestroyed()) window.destroy()
+  }
+  pluginConfigWindows.clear()
 }
 
 async function chooseFolder(): Promise<string | undefined> {
@@ -725,7 +1278,27 @@ async function checkForEngineUpdate(interactive: boolean): Promise<string> {
     return msg
   }
   const manifestUrl = process.env.DSH_ENGINE_UPDATE_URL
-  const manifestRaw = manifestUrl ? await (await net.fetch(manifestUrl)).text() : ''
+  let manifestRaw = ''
+  if (manifestUrl) {
+    let parsedManifestUrl: URL
+    try {
+      parsedManifestUrl = new URL(manifestUrl)
+    } catch {
+      parsedManifestUrl = new URL('about:blank')
+    }
+    if (parsedManifestUrl.protocol !== 'https:') {
+      const msg = isChinese
+        ? '引擎更新清单必须使用 HTTPS。'
+        : 'The engine update manifest must use HTTPS.'
+      if (interactive)
+        await dialog.showMessageBox({ type: 'warning', message: msg, buttons: ['OK'] })
+      return msg
+    }
+    const manifestResponse = await net.fetch(parsedManifestUrl.href)
+    if (!manifestResponse.ok)
+      throw new Error(`engine update manifest: HTTP ${manifestResponse.status}`)
+    manifestRaw = await manifestResponse.text()
+  }
   const manifest = parseEngineUpdateManifest(manifestRaw)
   if (!manifest) {
     const msg = isChinese
@@ -743,59 +1316,10 @@ async function checkForEngineUpdate(interactive: boolean): Promise<string> {
   })
   const dir = engineVersionDir(cacheRoot, manifest.version)
   const msg = isChinese
-    ? `引擎 ${manifest.version} 已下载并校验，将在下次启动使用：${dir}`
-    : `Engine ${manifest.version} downloaded and verified; will be used on next launch: ${dir}`
+    ? `引擎 ${manifest.version} 已下载并校验，等待后续激活：${dir}`
+    : `Engine ${manifest.version} downloaded and verified; activation is pending: ${dir}`
   if (interactive) await dialog.showMessageBox({ type: 'info', message: msg, buttons: ['OK'] })
   return msg
-}
-
-async function checkForUpdates(interactive: boolean): Promise<void> {
-  const repo = parseGithubRepo(process.env.DSH_GITHUB_REPO)
-  const isChinese = harnessLocale() === 'zh'
-  if (!repo) {
-    if (interactive) {
-      await dialog.showMessageBox({
-        type: 'info',
-        message: isChinese ? '未配置更新源。' : 'Update source is not configured.',
-        detail: isChinese
-          ? '设置环境变量 DSH_GITHUB_REPO=owner/repo 后即可检查 GitHub Releases。'
-          : 'Set DSH_GITHUB_REPO=owner/repo to check GitHub Releases.',
-        buttons: ['OK'],
-      })
-    }
-    return
-  }
-  const response = await net.fetch(
-    `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest`,
-    {
-      headers: { 'User-Agent': 'my-dsh' },
-    },
-  )
-  if (!response.ok) throw new Error(`GitHub releases HTTP ${response.status}`)
-  const body = (await response.json()) as { tag_name?: unknown; html_url?: unknown }
-  const latest = typeof body.tag_name === 'string' ? body.tag_name : ''
-  const url = typeof body.html_url === 'string' ? body.html_url : ''
-  if (!latest || !isNewerVersion(latest, app.getVersion())) {
-    if (interactive) {
-      await dialog.showMessageBox({
-        type: 'info',
-        message: isChinese ? '已是最新版本。' : 'You are on the latest version.',
-        buttons: ['OK'],
-      })
-    }
-    return
-  }
-  const result = await dialog.showMessageBox({
-    type: 'info',
-    message: isChinese ? `发现 ${latest}` : `Update ${latest} is available`,
-    detail: isChinese
-      ? '打开 GitHub Release 下载，并核对 SHA256SUMS.txt。'
-      : 'Open the GitHub Release and verify SHA256SUMS.txt.',
-    buttons: isChinese ? ['打开', '稍后'] : ['Open', 'Later'],
-    defaultId: 0,
-    cancelId: 1,
-  })
-  if (result.response === 0 && url) await shell.openExternal(url)
 }
 
 async function showSetupIfNeeded(fallback: string): Promise<void> {
@@ -820,6 +1344,46 @@ async function showSetupIfNeeded(fallback: string): Promise<void> {
   persistApiKey(result.apiKey)
   const userData = app.getPath('userData')
   saveDesktopSettings(userData, { ...loadDesktopSettings(userData), apiKeyPrompted: true })
+}
+
+async function confirmMarketAction(request: MarketActionRequest): Promise<boolean> {
+  const zh = harnessLocale() === 'zh'
+  const target =
+    typeof request.payload.full_name === 'string'
+      ? request.payload.full_name
+      : request.kind === 'restore'
+        ? zh
+          ? '备份中的插件集合'
+          : 'the plugins in this backup'
+        : zh
+          ? '当前安装'
+          : 'this installation'
+  const labels: Record<MarketActionRequest['kind'], { zh: string; en: string }> = {
+    install: { zh: '安装插件', en: 'Install plugin' },
+    update: { zh: '更新插件', en: 'Update plugin' },
+    remove: { zh: '移除插件', en: 'Remove plugin' },
+    toggle: { zh: '更改插件状态', en: 'Change plugin state' },
+    restore: { zh: '恢复插件备份', en: 'Restore plugin backup' },
+    sync: { zh: '同步插件目录', en: 'Sync plugin homes' },
+    'uninstall-market': { zh: '卸载插件市场', en: 'Uninstall Marketplace' },
+    'uninstall-app': { zh: '卸载 my-dsh', en: 'Uninstall my-dsh' },
+  }
+  const label = zh ? labels[request.kind].zh : labels[request.kind].en
+  const options: MessageBoxOptions = {
+    type:
+      request.kind.startsWith('uninstall') || request.kind === 'remove' ? 'warning' : 'question',
+    title: label,
+    message: zh ? `确认${label}？` : `${label}?`,
+    detail: String(target),
+    buttons: zh ? ['继续', '取消'] : ['Continue', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  }
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options)
+  return result.response === 0
 }
 
 function installIpc(): void {
@@ -852,6 +1416,97 @@ function installIpc(): void {
   ipcMain.handle('desktop:should-skip-onboarding', () => {
     const settings = loadDesktopSettings(app.getPath('userData'))
     return settings.apiKeyPrompted === true && !currentApiKeyPresent()
+  })
+  ipcMain.handle('usage-analytics:action', async (_event, request: unknown) => {
+    const req =
+      typeof request === 'object' && request !== null
+        ? (request as { kind: string; payload?: unknown })
+        : { kind: String(request) }
+    return dispatchUsageAnalyticsAction(req)
+  })
+  ipcMain.handle('model-config:action', (_event, request: unknown) =>
+    dispatchModelConfigAction(request),
+  )
+  ipcMain.handle('degeneration-guard:action', (_event, request: unknown) =>
+    dispatchDegenerationGuardAction(request),
+  )
+  ipcMain.handle('plugin-config:open', (_event, payload: unknown) => {
+    const plugin =
+      typeof payload === 'object' && payload !== null && 'plugin' in payload
+        ? String((payload as { plugin?: unknown }).plugin ?? '')
+        : ''
+    if (!PLUGIN_CONFIG_PAGES[plugin]) return { ok: false, error: `unknown plugin config: ${plugin}` }
+    void showPluginConfigView(plugin)
+    return { ok: true }
+  })
+  ipcMain.handle('plugin-config:close', () => {
+    hidePluginConfigViews()
+    return { ok: true }
+  })
+  ipcMain.handle('market:action', async (event, request: unknown) => {
+    if (!host?.url) return { ok: false, error: 'Harness is not ready' }
+    try {
+      return await executeMarketBrokerAction({
+        request,
+        senderUrl: event.senderFrame?.url ?? event.sender.getURL(),
+        harnessUrl: host.url,
+        token: marketBrokerToken,
+        confirm: confirmMarketAction,
+        fetchImpl: (url, init) => net.fetch(url, init),
+      })
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  // Harness home discovery / selection / import + plugin-homes sync matrix
+  // (multi-dir compatibility).
+  ipcMain.handle('home:discover', () => {
+    const homes = discoverHarnessHomes(app.getPath('userData'))
+    return {
+      homes,
+      current: effectiveHarnessHome(),
+      pluginHomes: resolvePluginHomes(app.getPath('userData'), loadDesktopSettings(app.getPath('userData'))),
+    }
+  })
+  ipcMain.handle('home:set-homes', (_event, value: unknown) => {
+    const userData = app.getPath('userData')
+    const settings = loadDesktopSettings(userData)
+    const raw =
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as { primary?: unknown; mirrors?: unknown })
+        : {}
+    const next: { primary?: string; mirrors?: string[] } = {}
+    if (typeof raw.primary === 'string' && raw.primary.trim()) next.primary = raw.primary.trim()
+    if (Array.isArray(raw.mirrors)) {
+      const mirrors = raw.mirrors.filter(
+        (m): m is string => typeof m === 'string' && m.trim().length > 0,
+      )
+      if (mirrors.length > 0) next.mirrors = mirrors.map((m) => m.trim())
+    }
+    saveDesktopSettings(userData, { ...settings, pluginHomes: next })
+    const resolved = resolvePluginHomes(userData, { pluginHomes: next })
+    logWarn(
+      `plugin homes updated: primary=${resolved.primary} mirrors=[${resolved.mirrors.join(', ')}]`,
+    )
+    // The marketplace reads the matrix at engine launch — a restart applies it.
+    return { ok: true, ...resolved, restartRequired: true }
+  })
+  ipcMain.handle('home:set', (_event, mode: unknown) => {
+    if (typeof mode !== 'string' || mode.trim() === '') return { ok: false, error: 'invalid mode' }
+    const userData = app.getPath('userData')
+    saveDesktopSettings(userData, { ...loadDesktopSettings(userData), harnessHome: mode.trim() })
+    return { ok: true, current: effectiveHarnessHome() }
+  })
+  ipcMain.handle('home:import', async (_event, source: unknown) => {
+    if (typeof source !== 'string' || source.trim() === '') {
+      return { ok: false, error: 'invalid source' }
+    }
+    const target = effectiveHarnessHome()
+    const result = importHarnessHome(source.trim(), target)
+    if (!result.ok) return { ok: false, error: result.error ?? 'import failed' }
+    logWarn(`harness home imported: ${source} → ${target}`)
+    return { ok: true, target }
   })
 }
 
@@ -892,7 +1547,10 @@ function installMenu(): void {
         { type: 'separator' },
         {
           label: isChinese ? '检查更新…' : 'Check for Updates…',
-          click: () => void checkForUpdates(true).catch(showUnexpectedError),
+          click: () =>
+            void checkForAppUpdates({ interactive: true, locale: harnessLocale() }).catch(
+              showUnexpectedError,
+            ),
         },
         ...(process.platform === 'darwin'
           ? []
@@ -987,7 +1645,7 @@ async function bootstrap(): Promise<void> {
   await showSetupIfNeeded(fallback)
   const settings = loadDesktopSettings(app.getPath('userData'))
   if (settings.autoUpdate !== false && app.isPackaged) {
-    void checkForUpdates(false).catch(() => undefined)
+    void checkForAppUpdates({ interactive: false, locale: harnessLocale() }).catch(() => undefined)
   }
   await launchHarness()
 }

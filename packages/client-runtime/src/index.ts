@@ -1,4 +1,4 @@
-export { launchHost, waitForReady } from './spawn-host.ts'
+export { appendOutputTail, launchHost, rotateLogFile, waitForReady } from './spawn-host.ts'
 export {
   resolveRuntime,
   resolveRuntimeMode,

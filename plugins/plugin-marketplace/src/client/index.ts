@@ -8,15 +8,74 @@
  * material prompt is skippable, and the section is a first-class nav entry.
  */
 
-import { createElement as h, useCallback, useEffect, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 
 const API = '/coeasy-market/api'
+
+type MarketActionKind =
+  'install' | 'update' | 'remove' | 'toggle' | 'restore' | 'sync' | 'uninstall-market' | 'uninstall-app'
+
+declare global {
+  interface Window {
+    dshDesktop?: {
+      marketAction?: (request: {
+        kind: MarketActionKind
+        payload: Record<string, unknown>
+      }) => Promise<unknown>
+    }
+  }
+}
+
+const brokerPending = new Map<
+  string,
+  { resolve(value: Row): void; reject(error: Error): void; timer: number }
+>()
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (event) => {
+    const data = event.data as {
+      channel?: unknown
+      requestId?: unknown
+      result?: unknown
+      error?: unknown
+    }
+    if (data?.channel !== 'dsh-market-response' || typeof data.requestId !== 'string') return
+    const pending = brokerPending.get(data.requestId)
+    if (!pending) return
+    brokerPending.delete(data.requestId)
+    window.clearTimeout(pending.timer)
+    if (typeof data.error === 'string' && data.error) pending.reject(new Error(data.error))
+    else pending.resolve((data.result ?? {}) as Row)
+  })
+}
+
+async function marketAction(
+  kind: MarketActionKind,
+  payload: Record<string, unknown>,
+): Promise<Row> {
+  if (typeof window === 'undefined') throw new Error('trusted marketplace host is unavailable')
+  if (window.dshDesktop?.marketAction) {
+    return (await window.dshDesktop.marketAction({ kind, payload })) as Row
+  }
+  if (window.parent === window) throw new Error('trusted marketplace host is unavailable')
+  const requestId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+  return new Promise<Row>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      brokerPending.delete(requestId)
+      reject(new Error('trusted marketplace host timed out'))
+    }, 310_000)
+    brokerPending.set(requestId, { resolve, reject, timer })
+    window.parent.postMessage({ channel: 'dsh-market-request', requestId, kind, payload }, '*')
+  })
+}
 
 const dict = {
   zh: {
     nav: '插件市场',
     search: '搜索插件 / 仓库 / 标签…',
     refresh: '刷新',
+    all: '全部',
+    builtin: '内置',
     curated: '精选',
     installed: '已安装',
     install: '安装',
@@ -28,11 +87,13 @@ const dict = {
     stars: '星',
     output: '命令输出',
     empty: '没有匹配的插件',
+    mineEmpty: '还没有安装任何插件，去“全部”里逛逛',
     loadError: '加载失败，请重试',
     loading: '正在加载插件目录',
     loadingSources: '正在加载数据源',
     offline: '在线数据源暂不可用，当前显示内置快照',
     retry: '重试',
+    loadMore: '加载更多',
     stageVerifying: '正在执行安装前安全校验…',
     stageInstalling: '正在通过官方 CLI 安装…',
     stageRefreshing: '正在刷新安装状态…',
@@ -83,17 +144,33 @@ const dict = {
     noLicense: '无许可',
     updatedAt: '更新于',
     link: '链接',
-    uninstallMarket: '卸载插件市场',
-    uninstallApp: '卸载 my-dsh 客户端',
     manage: '管理',
-    confirmUninstallMarket: '确定卸载插件市场？移除后需重启客户端生效。',
-    confirmUninstallApp: '确定卸载整个 my-dsh 客户端？（会启动系统卸载程序）',
-    uninstalling: '卸载中…',
+    notActive: '已安装未生效',
+    repair: '修复',
+    restartHint: '插件已注册，重启客户端后生效。',
+    homes: '目录同步',
+    homesPrimary: '主目录',
+    homesMirror: '镜像',
+    homesInSync: '已同步',
+    homesMissing: '缺少插件',
+    homesDrifted: '版本不同',
+    homesExtra: '含额外插件',
+    homesSync: '同步全部目录',
+    homesSyncing: '正在同步目录…',
+    homesSynced: '目录同步完成',
+    homesSyncPartial: '部分目录同步失败，见输出',
+    homesNote: '安装/更新/移除会同步到主目录与各镜像目录（官方 dsh 命令幂等重放）。',
+    homesDep: '依赖',
+    homesBundle: '层',
+    homesMissingOf: '缺少',
+    homesExtraOf: '额外',
   },
   en: {
     nav: 'Marketplace',
     search: 'Search plugins / repos / topics…',
     refresh: 'Refresh',
+    all: 'All',
+    builtin: 'Built-in',
     curated: 'Curated',
     installed: 'Installed',
     install: 'Install',
@@ -105,11 +182,13 @@ const dict = {
     stars: 'stars',
     output: 'Command output',
     empty: 'No matching plugins',
+    mineEmpty: 'Nothing installed yet — browse the full catalog',
     loadError: 'Failed to load, retry',
     loading: 'Loading plugin catalog',
     loadingSources: 'Loading data sources',
     offline: 'Online sources unavailable — showing built-in snapshot',
     retry: 'Retry',
+    loadMore: 'Load more',
     stageVerifying: 'Running pre-install security checks…',
     stageInstalling: 'Installing via the official CLI…',
     stageRefreshing: 'Refreshing install state…',
@@ -162,18 +241,30 @@ const dict = {
     noLicense: 'no license',
     updatedAt: 'Updated',
     link: 'Link',
-    uninstallMarket: 'Uninstall marketplace',
-    uninstallApp: 'Uninstall my-dsh client',
     manage: 'Manage',
-    confirmUninstallMarket: 'Uninstall the plugin marketplace? A restart is required to apply.',
-    confirmUninstallApp: 'Uninstall the whole my-dsh client? (launches the system uninstaller)',
-    uninstalling: 'Uninstalling…',
+    notActive: 'Installed, not active',
+    repair: 'Repair',
+    restartHint: 'Plugin registered — restart the client to apply.',
+    homes: 'Home sync',
+    homesPrimary: 'Primary',
+    homesMirror: 'Mirror',
+    homesInSync: 'In sync',
+    homesMissing: 'Missing plugins',
+    homesDrifted: 'Version differs',
+    homesExtra: 'Has extra plugins',
+    homesSync: 'Sync all homes',
+    homesSyncing: 'Syncing homes…',
+    homesSynced: 'Homes in sync',
+    homesSyncPartial: 'Some homes failed to sync, see output',
+    homesNote: 'Install/update/remove is replayed to the primary and every mirror (idempotent official dsh).',
+    homesDep: 'Deps',
+    homesBundle: 'Layers',
+    homesMissingOf: 'Missing',
+    homesExtraOf: 'Extra',
   },
 } as const
 type Locale = keyof typeof dict
 
-// Progressive multi-source load order (matches ADAPTERS on the host side).
-const SRC_ORDER = ['awesome', 'store1024', 'dshfind', 'github', 'builtin']
 type Row = Record<string, unknown>
 
 interface SlotsService {
@@ -655,6 +746,8 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
   const [sources, setSources] = useState<Row[]>([])
   const [source, setSource] = useState('all')
   const [cat, setCat] = useState('全部')
+  // P0-4: “已安装” view filter — show only installed cards.
+  const [mine, setMine] = useState(false)
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [output, setOutput] = useState('')
@@ -674,77 +767,105 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
   const [diag, setDiag] = useState('')
   const [progress, setProgress] = useState('')
   const [manageOpen, setManageOpen] = useState(false)
+  const [homes, setHomes] = useState<Row[] | null>(null)
+  const [homesSyncing, setHomesSyncing] = useState(false)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
+  const [total, setTotal] = useState(0)
+  const loadAbort = useRef<AbortController | null>(null)
 
   const load = useCallback(
-    async (refresh: boolean, src?: string) => {
-      const s = src ?? source
-      if (s !== 'all') {
-        // Single-source view (source picker): just swap the list in place.
-        try {
-          const res = await fetch(
-            `${API}/list?source=${encodeURIComponent(s)}${refresh ? '&refresh=1' : ''}`,
-            { cache: 'no-store' },
-          )
-          const body = (await res.json()) as { repos: Row[]; profile?: string }
-          setRepos(body.repos ?? [])
-          if (typeof body.profile === 'string') setProfile(body.profile)
-        } catch {
-          setRepos((r) => r ?? [])
-        }
-        return
+    async (refresh: boolean, nextPage = 1, append = false) => {
+      loadAbort.current?.abort()
+      const controller = new AbortController()
+      loadAbort.current = controller
+      if (!append) {
+        setProgress(dict[locale].loading)
+        setRepos(null)
       }
-      // Progressive multi-source: fetch each source concurrently and fill the
-      // list as each arrives, with a visible "loading other sources" hint.
-      const map = new Map<string, Row>()
-      let finished = 0
-      const total = SRC_ORDER.length
-      setProgress(t('loading'))
-      setRepos(null)
-      await Promise.all(
-        SRC_ORDER.map(async (id) => {
-          try {
-            const res = await fetch(`${API}/list?source=${id}${refresh ? '&refresh=1' : ''}`, {
-              cache: 'no-store',
-            })
-            const body = (await res.json()) as {
-              repos: Row[]
-              categories: string[]
-              sources: Row[]
-              profile?: string
-            }
-            for (const r of body.repos ?? []) map.set(String(r.full_name), r)
-            if (typeof body.profile === 'string') setProfile(body.profile)
-            if (Array.isArray(body.categories))
-              setCategories((prev) => (prev.length > 0 ? prev : body.categories))
-            if (Array.isArray(body.sources))
-              setSources((prev) => {
-                const byId = new Map(prev.map((x) => [String(x.id), x]))
-                for (const si of body.sources) byId.set(String(si.id), si)
-                return SRC_ORDER.map((sid) => byId.get(sid)).filter((x): x is Row => Boolean(x))
-              })
-            setRepos([...map.values()])
-          } catch {
-            /* keep whatever already loaded */
-          }
-          finished += 1
-          setProgress(`${t('loadingSources')} ${finished}/${total}`)
-        }),
-      )
-      setRepos([...map.values()])
-      setProgress('')
+      try {
+        const params = new URLSearchParams({
+          source,
+          page: String(nextPage),
+          page_size: '50',
+        })
+        if (query.trim()) params.set('q', query.trim())
+        if (refresh) params.set('refresh', '1')
+        // P0-4: in the “已安装” view ask the server to filter the FULL catalog
+        // (installed cards are not star-sorted into the first page).
+        if (mine) params.set('installed_only', '1')
+        const res = await fetch(`${API}/list?${params.toString()}`, {
+          cache: 'no-store',
+          signal: controller.signal,
+        })
+        if (!res.ok) throw new Error(`catalog HTTP ${res.status}`)
+        const body = (await res.json()) as {
+          repos?: Row[]
+          categories?: string[]
+          sources?: Row[]
+          profile?: string
+          page?: number
+          total?: number
+          hasMore?: boolean
+        }
+        const incoming = Array.isArray(body.repos) ? body.repos : []
+        setRepos((current) => {
+          if (!append) return incoming
+          const byName = new Map((current ?? []).map((row) => [String(row.full_name), row]))
+          for (const row of incoming) byName.set(String(row.full_name), row)
+          return [...byName.values()]
+        })
+        if (typeof body.profile === 'string') setProfile(body.profile)
+        if (Array.isArray(body.categories)) setCategories(body.categories)
+        if (Array.isArray(body.sources)) {
+          setSources((current) => {
+            const byId = new Map(current.map((row) => [String(row.id), row]))
+            for (const row of body.sources ?? []) byId.set(String(row.id), row)
+            return [...byId.values()]
+          })
+        }
+        setPage(Number.isFinite(body.page) ? Number(body.page) : nextPage)
+        setTotal(Number.isFinite(body.total) ? Number(body.total) : incoming.length)
+        setHasMore(body.hasMore === true)
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setRepos((current) => current ?? [])
+        setHasMore(false)
+        setOutput(error instanceof Error ? error.message : String(error))
+      } finally {
+        if (loadAbort.current === controller) {
+          loadAbort.current = null
+          setProgress('')
+        }
+      }
     },
-    [source],
+    [locale, query, source, mine],
   )
 
-  // Open the market → always fetch the latest (fresh data on every open).
+  // Debounce full-index search and abort superseded source/query requests.
   useEffect(() => {
-    void load(true)
+    const timer = window.setTimeout(() => void load(false), query.trim() ? 250 : 0)
+    return () => {
+      window.clearTimeout(timer)
+      loadAbort.current?.abort()
+    }
   }, [load])
 
   const pickSource = (s: string) => {
     setSource(s)
-    if (s !== 'all') void load(true, s)
   }
+
+  // Multi-home sync matrix: read the primary + mirror consistency view.
+  // Defined BEFORE `act` because act's dependency array references it.
+  const loadHomes = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/homes`, { cache: 'no-store' })
+      const b = (await r.json()) as { homes?: Row[] }
+      setHomes(Array.isArray(b.homes) ? b.homes : [])
+    } catch {
+      setHomes([])
+    }
+  }, [])
 
   const act = useCallback(
     async (kind: string, payload: Record<string, string>, key: string) => {
@@ -756,16 +877,35 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
       setProgress(installing ? t('stageVerifying') : t('stageInstalling'))
       try {
         if (installing) setProgress(t('stageInstalling'))
-        const res = await fetch(`${API}/${kind}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        const body = (await res.json()) as { ok?: boolean; output?: string }
-        setOutput(body.output ?? `${kind} → ${res.status}`)
+        const body = (await marketAction(kind as MarketActionKind, payload)) as {
+          ok?: boolean
+          output?: string
+          error?: string
+          restartRequired?: boolean
+          mirrors?: Row[]
+          mirrorNote?: string
+        }
+        const hint =
+          body.ok && body.restartRequired === true && (kind === 'install' || kind === 'update')
+            ? `\n\n${t('restartHint')}`
+            : ''
+        // Mirror replay results (multi-home sync) appended to the output.
+        let mirrorLines = ''
+        const mirrorFailures = (body.mirrors ?? []).filter((m) => m.ok !== true)
+        if (Array.isArray(body.mirrors) && body.mirrors.length > 0) {
+          mirrorLines = `\n\n[${t('homes')}]\n`
+          for (const m of body.mirrors as Row[]) {
+            mirrorLines += `  ${m.ok ? 'OK' : 'FAIL'}  ${String(m.path)}${m.ok ? '' : `  ${String(m.error ?? '')}`}\n`
+          }
+          if (mirrorFailures.length > 0) mirrorLines += `${t('homesSyncPartial')}\n`
+        }
+        setOutput(
+          `${body.output ?? body.error ?? `${kind} → ${body.ok ? 'OK' : 'FAIL'}`}${hint}${mirrorLines}`,
+        )
         if (body.ok) {
           setProgress(t('stageRefreshing'))
-          await load(false, source)
+          await load(false)
+          if (Array.isArray(body.mirrors) && body.mirrors.length > 0) void loadHomes()
         }
       } catch (e) {
         setOutput(String(e))
@@ -774,7 +914,7 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
         setBusy(null)
       }
     },
-    [load],
+    [load, loadHomes],
   )
 
   const sourceLabel = (id: string): string => {
@@ -814,9 +954,9 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
     const c = confirm
     setConfirm(null)
     if (c.kind === 'remove') {
-      await act('remove', { pkg: c.spec }, c.fullName)
+      await act('remove', { full_name: c.fullName }, c.fullName)
     } else {
-      await act(c.kind, { spec: c.spec, type: c.type, full_name: c.fullName }, c.fullName)
+      await act(c.kind, { full_name: c.fullName }, c.fullName)
     }
   }
 
@@ -841,22 +981,33 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
     setOutput('')
     try {
       const backup = JSON.parse(backupJson)
-      const r = await fetch(`${API}/restore`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ backup }),
-      })
-      const b = (await r.json()) as {
+      const b = (await marketAction('restore', { backup })) as {
         restored?: string[]
         failed?: Array<{ pkg: string; error: string }>
         ok?: boolean
+        mirrorSummary?: {
+          ok?: boolean
+          skipped?: boolean
+          note?: string
+          results?: Row[]
+        }
       }
       const ok = (b.failed ?? []).length === 0
+      let mirrorLines = ''
+      const ms = b.mirrorSummary
+      if (ms) {
+        mirrorLines = `\n[${t('homes')}] ${ms.note ?? ''}\n`
+        for (const r of (ms.results ?? []) as Row[]) {
+          mirrorLines += `  ${r.ok ? 'OK' : 'FAIL'}  ${String(r.path)}${r.ok ? '' : `  ${String(r.error ?? '')}`}\n`
+        }
+      }
       setOutput(
         `${ok ? t('restoreDone') : t('restorePartial')}\n` +
           `restored: ${(b.restored ?? []).join(', ') || '—'}\n` +
-          (b.failed ?? []).map((f) => `✗ ${f.pkg}: ${f.error}`).join('\n'),
+          (b.failed ?? []).map((f) => `✗ ${f.pkg}: ${f.error}`).join('\n') +
+          mirrorLines,
       )
+      if (ms) void loadHomes()
     } catch (e) {
       setOutput(`${t('restorePartial')}\n${String(e)}`)
     }
@@ -898,38 +1049,40 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
     }
   }
 
-  const doUninstallMarket = async () => {
-    if (typeof window !== 'undefined' && !window.confirm(t('confirmUninstallMarket'))) return
+  // Lazy repair — bring every mirror up to the primary's plugin set.
+  const doSyncHomes = async () => {
+    setHomesSyncing(true)
     setOutput('')
     try {
-      const r = await fetch(`${API}/uninstall-market`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      })
-      const b = (await r.json()) as { ok?: boolean; output?: string }
-      setOutput(`${b.ok ? 'OK' : 'FAIL'}\n${b.output ?? ''}`)
-      await load(false, source)
+      const b = (await marketAction('sync', { force: true })) as {
+        ok?: boolean
+        skipped?: boolean
+        results?: Row[]
+        failures?: Row[]
+        note?: string
+      }
+      const lines: string[] = []
+      lines.push(b.ok ? t('homesSynced') : t('homesSyncPartial'))
+      for (const r of (b.results ?? []) as Row[]) {
+        const added = Array.isArray(r.added) ? (r.added as string[]).length : 0
+        const updated = Array.isArray(r.updated) ? (r.updated as string[]).length : 0
+        const detail = added > 0 ? ` (+${added})` : updated > 0 ? ` (~${updated})` : ''
+        const status = r.ok ? `OK${detail}` : `FAIL: ${String(r.error ?? '')}`
+        lines.push(`  ${String(r.path)}  ${status}`)
+      }
+      if ((b.failures ?? []).length > 0) lines.push('', t('homesSyncPartial'))
+      setOutput(lines.join('\n'))
+      await loadHomes()
     } catch (e) {
       setOutput(String(e))
+    } finally {
+      setHomesSyncing(false)
     }
   }
 
-  const doUninstallApp = async () => {
-    if (typeof window !== 'undefined' && !window.confirm(t('confirmUninstallApp'))) return
-    setOutput('')
-    try {
-      const r = await fetch(`${API}/uninstall-app`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      })
-      const b = (await r.json()) as { ok?: boolean; message?: string }
-      setOutput(`${b.ok ? 'OK' : 'FAIL'}\n${b.message ?? ''}`)
-    } catch (e) {
-      setOutput(String(e))
-    }
-  }
+  useEffect(() => {
+    if (manageOpen) void loadHomes()
+  }, [manageOpen, loadHomes])
 
   const toggleDetail = async (fullName: string) => {
     if (open[fullName]) {
@@ -953,6 +1106,8 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
   const onlineAllFailed = onlineSources.length > 0 && onlineSources.every((s) => s.ok === false)
   const sorted = [...(repos ?? [])]
     .filter((r) => {
+      // P0-4: “已安装” view keeps only installed cards.
+      if (mine && !r.installed) return false
       const inCat = cat === '全部' || r.category === cat
       if (!inCat) return false
       if (query === '') return true
@@ -983,7 +1138,7 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
         placeholder: t('search'),
         onChange: (e: { target: { value: string } }) => setQuery(e.target.value),
       }),
-      h('button', { style: S.btn, onClick: () => void load(true, source) }, t('refresh')),
+      h('button', { style: S.btn, onClick: () => void load(true) }, t('refresh')),
       h(
         'button',
         {
@@ -995,6 +1150,13 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
         },
         '⋯',
       ),
+    ),
+    // P0-4: “全部 / 已安装” primary view tabs.
+    h(
+      'div',
+      { style: { ...S.toolbar, gap: '6px' } },
+      h('button', { style: !mine ? S.chipOn : S.chip, onClick: () => setMine(false) }, t('all')),
+      h('button', { style: mine ? S.chipOn : S.chip, onClick: () => setMine(true) }, t('installed')),
     ),
     sources.length > 1
       ? h(
@@ -1044,7 +1206,7 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
             'button',
             {
               style: { ...S.cardBtn, flexShrink: 0 },
-              onClick: () => void load(true, source),
+              onClick: () => void load(true),
             },
             t('retry'),
           ),
@@ -1094,18 +1256,11 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
               h(
                 'button',
                 {
-                  style: { ...S.btn, border: '1px solid rgba(220,38,38,0.55)' },
-                  onClick: () => void doUninstallMarket(),
+                  style: { ...S.btn, color: '#fff', background: T.ok, border: 'none' },
+                  disabled: homesSyncing,
+                  onClick: () => void doSyncHomes(),
                 },
-                t('uninstallMarket'),
-              ),
-              h(
-                'button',
-                {
-                  style: { ...S.btn, border: '1px solid rgba(220,38,38,0.75)' },
-                  onClick: () => void doUninstallApp(),
-                },
-                t('uninstallApp'),
+                homesSyncing ? t('homesSyncing') : t('homesSync'),
               ),
               h('span', { style: S.note }, `${t('profile')}: ${profile || '—'}`),
             ),
@@ -1115,6 +1270,80 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
                   value: backupJson,
                   onChange: (e: { target: { value: string } }) => setBackupJson(e.target.value),
                 })
+              : null,
+            // Multi-home sync matrix: primary + mirrors with per-home status.
+            homes !== null
+              ? h(
+                  'div',
+                  { style: { ...S.detail, marginTop: '6px', maxHeight: '220px' } },
+                  h('div', { style: { fontWeight: 600, fontSize: '12px', marginBottom: '2px' } }, t('homes')),
+                  h('div', { style: { ...S.note, marginBottom: '4px' } }, t('homesNote')),
+                  homes.length === 0
+                    ? h('div', { style: S.note }, '—')
+                    : homes.map((hm) => {
+                        const isPrimary = hm.role === 'primary'
+                        const missing = (hm.missing as string[]) ?? []
+                        const extra = (hm.extra as string[]) ?? []
+                        const drifted = (hm.drifted as string[]) ?? []
+                        const statusText =
+                          hm.status === 'in-sync'
+                            ? t('homesInSync')
+                            : hm.status === 'missing'
+                              ? t('homesMissing')
+                              : hm.status === 'drifted'
+                                ? t('homesDrifted')
+                                : t('homesExtra')
+                        const statusColor =
+                          hm.status === 'in-sync'
+                            ? T.ok
+                            : hm.status === 'missing'
+                              ? '#f59e0b'
+                              : hm.status === 'drifted'
+                                ? '#f97316'
+                                : T.text2
+                        return h(
+                          'div',
+                          {
+                            key: String(hm.path),
+                            style: { padding: '6px 0', borderBottom: `1px solid ${T.borderSoft}` },
+                          },
+                          h(
+                            'div',
+                            {
+                              style: {
+                                display: 'flex',
+                                gap: '8px',
+                                alignItems: 'center',
+                                flexWrap: 'wrap' as const,
+                              },
+                            },
+                            h(
+                              'span',
+                              {
+                                style: isPrimary
+                                  ? { ...S.badge, background: T.accent, color: '#fff' }
+                                  : S.badgeGray,
+                              },
+                              isPrimary ? t('homesPrimary') : t('homesMirror'),
+                            ),
+                            h(
+                              'span',
+                              { style: { fontSize: '12px', flex: '1', wordBreak: 'break-all' as const } },
+                              String(hm.path),
+                            ),
+                            h('span', { style: { fontSize: '11px', color: statusColor, whiteSpace: 'nowrap' as const } }, statusText),
+                          ),
+                          h(
+                            'div',
+                            { style: { ...S.meta, marginTop: '2px' } },
+                            `${t('homesDep')}: ${(hm.dependencies as string[])?.length ?? 0} · ${t('homesBundle')}: ${(hm.bundles as string[])?.length ?? 0}` +
+                              (missing.length ? ` · ${t('homesMissingOf')}: ${missing.join(', ')}` : '') +
+                              (drifted.length ? ` · ${t('homesDrifted')}: ${drifted.join(', ')}` : '') +
+                              (extra.length ? ` · ${t('homesExtraOf')}: ${extra.join(', ')}` : ''),
+                          ),
+                        )
+                      }),
+                )
               : null,
             diag !== ''
               ? h(
@@ -1131,12 +1360,8 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
       ? h(
           'div',
           { style: S.skeleton },
-          h(
-            'div',
-            { style: S.loading },
-            h('span', { style: S.spinner, 'aria-hidden': true }),
-            h('span', { style: S.loadingText }, progress !== '' ? progress : t('loading')),
-          ),
+          // 列表骨架不重复展示进度文案：顶部 progress 条已承载"正在加载"提示，
+          // 这里仅保留骨架卡片，避免启动时出现两个"正在加载目录"。
           h('div', { style: S.skeletonCard }),
           h('div', { style: S.skeletonCard }),
           h('div', { style: S.skeletonCard }),
@@ -1167,8 +1392,14 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
                     },
                     fn,
                   ),
+                  r.firstParty
+                    ? h('span', { style: { ...S.badge, background: 'rgba(47,111,235,0.16)', color: '#58a6ff' } }, t('builtin'))
+                    : null,
                   r.curated ? h('span', { style: S.badge }, t('curated')) : null,
                   r.installed ? h('span', { style: S.badgeGreen }, t('installed')) : null,
+                  r.installed && !r.inBundles
+                    ? h('span', { style: { ...S.badge, background: 'rgba(245,158,11,0.18)', color: '#f59e0b' } }, t('notActive'))
+                    : null,
                   typeof r.type === 'string' && r.type !== 'unknown'
                     ? h('span', { style: S.badgeGray }, String(r.type))
                     : null,
@@ -1220,26 +1451,42 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
                     flexWrap: 'wrap' as const,
                   },
                 },
-                r.installed
+                // First-party built-ins are read-only: they ship with the client
+                // and are (re)installed by the desktop bootstrap — no install /
+                // update / remove / repair actions, only info.
+                r.firstParty
+                  ? null
+                  : r.installed
+                    ? h(
+                        'button',
+                        {
+                          style: S.cardBtn,
+                          disabled: busy !== null,
+                          onClick: () => void openConfirm('update', r),
+                        },
+                        isBusy ? t('installing') : t('update'),
+                      )
+                    : h(
+                        'button',
+                        {
+                          style: S.cardBtnPrimary,
+                          disabled: busy !== null,
+                          onClick: () => void openConfirm('install', r),
+                        },
+                        isBusy ? t('installing') : t('install'),
+                      ),
+                !r.firstParty && r.installed && !r.inBundles
                   ? h(
                       'button',
                       {
-                        style: S.cardBtn,
-                        disabled: busy !== null,
-                        onClick: () => void openConfirm('update', r),
-                      },
-                      isBusy ? t('installing') : t('update'),
-                    )
-                  : h(
-                      'button',
-                      {
-                        style: S.cardBtnPrimary,
+                        style: { ...S.cardBtnPrimary, background: 'rgba(245,158,11,0.9)', color: '#111' },
                         disabled: busy !== null,
                         onClick: () => void openConfirm('install', r),
                       },
-                      isBusy ? t('installing') : t('install'),
-                    ),
-                r.installed
+                      t('repair'),
+                    )
+                  : null,
+                !r.firstParty && r.installed
                   ? h(
                       'button',
                       {
@@ -1262,6 +1509,17 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
               ),
             )
           }),
+    repos !== null && sorted.length > 0 && hasMore
+      ? h(
+          'div',
+          { style: { ...S.toolbar, justifyContent: 'center' } },
+          h(
+            'button',
+            { style: S.btn, onClick: () => void load(false, page + 1, true) },
+            `${t('loadMore')} (${String(repos.length)}/${String(total)})`,
+          ),
+        )
+      : null,
     output !== ''
       ? h(
           'details',

@@ -1,15 +1,33 @@
-import { shell, type BrowserWindow } from 'electron'
+import { shell, type BrowserWindow, type WebContents, type WebContentsView } from 'electron'
 import { canGrantWindowPermission, isTrustedAppUrl } from './security-policy.ts'
 
-export function secureWindow(window: BrowserWindow): void {
+export type TrustedOriginSource = string[] | (() => string[])
+
+function origins(source: TrustedOriginSource): string[] {
+  return typeof source === 'function' ? source() : source
+}
+
+/** Anything exposing a webContents (BrowserWindow, WebContentsView, …). */
+export type SecurableContents = { webContents: WebContents } | BrowserWindow | WebContentsView
+
+function contentsOf(target: SecurableContents): WebContents {
+  return target.webContents
+}
+
+export function secureWindow(
+  target: SecurableContents,
+  trustedFileRoots: string[] = [],
+  trustedOrigins: TrustedOriginSource = [],
+): void {
+  const window = target
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isTrustedAppUrl(url)) return { action: 'allow' }
+    if (isTrustedAppUrl(url, trustedFileRoots, origins(trustedOrigins))) return { action: 'allow' }
     if (url.startsWith('https://') || url.startsWith('http://')) void shell.openExternal(url)
     return { action: 'deny' }
   })
 
   window.webContents.on('will-navigate', (event, url) => {
-    if (isTrustedAppUrl(url)) return
+    if (isTrustedAppUrl(url, trustedFileRoots, origins(trustedOrigins))) return
     event.preventDefault()
     if (url.startsWith('https://') || url.startsWith('http://')) void shell.openExternal(url)
   })
@@ -21,11 +39,19 @@ export function secureWindow(window: BrowserWindow): void {
         permission,
         details.requestingUrl ?? requestingOrigin,
         details.isMainFrame,
+        origins(trustedOrigins),
       ),
   )
   window.webContents.session.setPermissionRequestHandler(
     (_webContents, permission, callback, details) => {
-      callback(canGrantWindowPermission(permission, details.requestingUrl, details.isMainFrame))
+      callback(
+        canGrantWindowPermission(
+          permission,
+          details.requestingUrl,
+          details.isMainFrame,
+          origins(trustedOrigins),
+        ),
+      )
     },
   )
 }

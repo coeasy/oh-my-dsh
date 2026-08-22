@@ -6,7 +6,10 @@ describe('vscode webview panel', () => {
   it('embeds loopback iframe with frame-src CSP', () => {
     const html = panelHtml('http://127.0.0.1:4123')
     assert.match(html, /frame-src http:\/\/127\.0\.0\.1:\*/)
-    assert.match(html, /iframe src="http:\/\/127\.0\.0\.1:4123"/)
+    assert.match(html, /iframe id="dsh-frame" src="http:\/\/127\.0\.0\.1:4123"/)
+    assert.match(html, /dsh-market-request/)
+    assert.match(html, /event\.origin !== expectedOrigin/)
+    assert.match(html, /script-src 'nonce-dsh-market-bridge'/)
     assert.equal(WEBVIEW_CSP.includes('frame-src http://127.0.0.1:*'), true)
   })
 

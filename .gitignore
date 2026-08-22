@@ -18,9 +18,19 @@ runtime/payload/
 runtime/payload.stale-*/
 runtime/engine-resolved.json
 apps/desktop/dist/
+apps/desktop/dist-build/
 apps/desktop/dist-release/
+apps/desktop/dist-release-online/
 apps/desktop/release/
+apps/desktop/tmp-asar/
+apps/desktop/tmp-asar-old/
 apps/desktop/win-unpacked.stale-*/
+
+# Root one-shot diagnostic/probe scripts and tokens — never publish
+/tmp-*.mjs
+/tmp-*.cjs
+/tmp-*.txt
+/tmp-token.*
 
 # Upstream DeepSeek Harness clone. Fetch on demand; never commit sources.
 /deepseek-harness/

@@ -1,6 +1,6 @@
 {
   "name": "@coeasy/dsh-plugin-marketplace",
-  "version": "0.1.0",
+  "version": "0.1.0-build.629a936a",
   "description": "Plugin marketplace for DeepSeek Harness — browse, install, update and manage community plugins through the official dsh CLI. · DSH 插件市场：逛、搜、一键安装，全部走官方通道。",
   "type": "module",
   "main": "lib/index.js",
@@ -33,14 +33,18 @@
   "scripts": {
     "build:host": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.js",
     "build:client": "tsdown",
-    "build": "pnpm run build:host && pnpm run build:client",
+    "version": "node scripts/bump-version.mjs",
+    "snapshot": "node scripts/build-snapshot.mjs",
+    "build": "node scripts/bump-version.mjs && pnpm run build:host && pnpm run build:client && node scripts/build-snapshot.mjs || echo 'snapshot refresh skipped (offline)'",
+    "build:host:fingerprint": "node scripts/bump-version.mjs && pnpm run build:host",
+    "build:client:fingerprint": "node scripts/bump-version.mjs && pnpm run build:client",
     "test": "node --test tests/"
   },
   "dependencies": {},
   "devDependencies": {
     "@types/node": "^26.2.0",
     "@types/react": "~18.3.1",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.28.2",
     "react": "~18.3.1",
     "tsdown": "^0.22.14",
     "typescript": "^6.0.3"

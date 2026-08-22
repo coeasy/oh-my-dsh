@@ -7,8 +7,8 @@
  *   3. 安装到临时 extensions-dir
  *   4. 启动扩展并断言 loopback URL 可访问、退出后无残留进程
  *
- * 完整链路（含真实 VS Code 交互）在 CI 上跑；本脚本提供可独立运行的最小闭环，
- * 便于本地快速验证打包链路没有被破坏。
+ * 当前脚本覆盖打包产物闭环；真实 VS Code 交互仍需后续接入
+ * @vscode/test-cli，避免把“产物冒烟”误称为完整 E2E。
  *
  * 用法：pnpm e2e 或 node tests/e2e/vscode.e2e.mjs
  */
@@ -26,17 +26,22 @@ function fail(msg) {
 
 // 1. 打包 VSIX
 console.log('e2e: packing vscode extension…')
-execFileSync('pnpm', ['pack:vscode'], { cwd: root, stdio: 'inherit' })
+execFileSync('pnpm', ['pack:vscode'], {
+  cwd: root,
+  stdio: 'inherit',
+  // Windows exposes pnpm as a cmd shim; direct execFileSync of pnpm.cmd
+  // returns EINVAL on hosted runners.
+  shell: process.platform === 'win32',
+})
 
 // 2. 解析最新 VSIX 产物
-const outDir = join(root, 'apps', 'vscode', 'out')
-if (!existsSync(outDir)) fail(`missing ${outDir}`)
-const vsix = readdirSync(outDir).find((f) => f.endsWith('.vsix'))
-if (!vsix) fail('no .vsix produced in apps/vscode/out')
+const extDir = join(root, 'apps', 'vscode')
+if (!existsSync(extDir)) fail(`missing ${extDir}`)
+const vsix = readdirSync(extDir).find((f) => f.endsWith('.vsix'))
+if (!vsix) fail('no .vsix produced in apps/vscode')
 console.log(`e2e: produced ${vsix}`)
 
 // 3. 断言扩展产物包含图标与主入口（打包回归检查）
-const extDir = join(root, 'apps', 'vscode')
 for (const expected of ['out/extension.js', 'media/icon.png']) {
   const p = join(extDir, expected)
   if (!existsSync(p)) fail(`missing ${expected}`)
