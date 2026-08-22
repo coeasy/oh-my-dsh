@@ -35,7 +35,7 @@ jobs:
       # "Version Packages" PR (bumps versions + CHANGELOG, fixed group).
       # On merge of that Version Packages PR: run ci:publish which tags
       # v<version> and pushes it, triggering .github/workflows/release.yml.
-      - uses: changesets/action@v1
+      - uses: changesets/action@v2
         with:
           version: pnpm version:packages
           publish: pnpm ci:publish
