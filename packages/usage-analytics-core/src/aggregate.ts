@@ -30,7 +30,11 @@ export interface DailyAggregate {
   cost_currency: string | null
 }
 
-export function emptyAggregate(date: string, provider_id: string, model_id: string): DailyAggregate {
+export function emptyAggregate(
+  date: string,
+  provider_id: string,
+  model_id: string,
+): DailyAggregate {
   return {
     date,
     provider_id,

@@ -26,6 +26,7 @@ const BUNDLED_PLUGINS = [
   { pkg: 'model-config', name: '@dsh/plugin-model-config', dest: 'plugin-model-config' },
   { pkg: 'degeneration-guard', name: '@dsh/plugin-degeneration-guard', dest: 'plugin-degeneration-guard' },
   { pkg: 'usage-analytics', name: '@dsh/plugin-usage-analytics', dest: 'plugin-usage-analytics' },
+  { pkg: 'desktop-bridge', name: '@dsh/plugin-desktop-bridge', dest: 'plugin-desktop-bridge' },
 ]
 
 /** Runtime artifacts shipped with the client (mirrors copy-market entries). */
@@ -93,7 +94,6 @@ function copyProductionDeps(pkgJson, pluginDir) {
     copied.add(name)
     // Transitive dependencies.
     const subPkg = JSON.parse(
-      // eslint-disable-next-line n/no-sync
       readFileSync(join(real, 'package.json'), 'utf8'),
     )
     for (const sub of Object.keys(subPkg.dependencies || {})) {
@@ -113,7 +113,6 @@ for (const { pkg, name, dest } of BUNDLED_PLUGINS) {
     process.exit(1)
   }
   const pkgJson = JSON.parse(
-    // eslint-disable-next-line n/no-sync
     readFileSync(join(src, 'package.json'), 'utf8'),
   )
   if (!/^[\w.+-]+-build\.[0-9a-f]{8}$/u.test(pkgJson.version ?? '')) {

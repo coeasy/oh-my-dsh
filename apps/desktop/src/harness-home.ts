@@ -146,7 +146,9 @@ export function resolveHarnessHome(
 
 /** Canonical lowercase key for a path, for dedup across drives/separators. */
 function pathKey(path: string): string {
-  return resolve(path).toLowerCase().replace(/[\\/]+$/u, '')
+  return resolve(path)
+    .toLowerCase()
+    .replace(/[\\/]+$/u, '')
 }
 
 /**
@@ -169,7 +171,11 @@ export function resolvePluginHomes(
 ): { primary: string; mirrors: string[] } {
   const primary = resolve(
     settings.pluginHomes?.primary?.trim() ||
-      resolveHarnessHome((settings.harnessHome as HarnessHomeMode | undefined) ?? 'auto', userDataPath, env),
+      resolveHarnessHome(
+        (settings.harnessHome as HarnessHomeMode | undefined) ?? 'auto',
+        userDataPath,
+        env,
+      ),
   )
   const primaryKey = pathKey(primary)
   const mirrors: string[] = []
@@ -206,7 +212,10 @@ function isSafeTarget(target: string): boolean {
  * existing target; caller removes/merges explicitly when needed.
  * @returns whether a copy was performed.
  */
-export function importHarnessHome(source: string, target: string): { ok: boolean; copied: boolean; error?: string } {
+export function importHarnessHome(
+  source: string,
+  target: string,
+): { ok: boolean; copied: boolean; error?: string } {
   if (!existsSync(source) || !existsSync(join(source, 'profiles'))) {
     return { ok: false, copied: false, error: `source is not a harness home: ${source}` }
   }

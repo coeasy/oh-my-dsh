@@ -40,7 +40,13 @@ import {
   writePatchToggle,
 } from './install.ts'
 import type { MirrorSyncSummary } from './install.ts'
-import { isFirstPartyEntry, loadCatalog, paginateCatalog, resolveCatalogEntry, scanSource } from './catalog.ts'
+import {
+  isFirstPartyEntry,
+  loadCatalog,
+  paginateCatalog,
+  resolveCatalogEntry,
+  scanSource,
+} from './catalog.ts'
 import { installFileTypeAtomic } from './file-installer.ts'
 import { verifyNpmPackage, verifyTarballIntegrity } from './verify.ts'
 import { validateInstalledBundle } from './bundle-check.ts'

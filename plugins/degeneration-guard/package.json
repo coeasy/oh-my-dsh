@@ -1,6 +1,6 @@
 {
   "name": "@dsh/plugin-degeneration-guard",
-  "version": "0.1.0-build.329e8a5f",
+  "version": "0.1.0-build.d5c8e9bc",
   "private": true,
   "type": "module",
   "description": "Cordis bundle: degeneration detection (n-gram cycle + tool-repeat + turn limit) with an escalation ladder.",

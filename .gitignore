@@ -67,5 +67,13 @@ scripts/_del_pnpm.sh
 .rundata/
 output/
 
-# plugin-marketplace build output (client bundle; built by compile:desktop)
-plugins/plugin-marketplace/client/
+# Browser client bundle build outputs (src/client/*.tsx is the source of
+# record; tsdown emits client/client.js, built by compile:desktop)
+plugins/*/client/
+
+# Bundled first-party plugin UI build outputs (ui-src/*.tsx is the source of
+# record; esbuild emits ui/bundle.js and copy-plugin-ui mirrors it into the
+# desktop resource tree during compile:desktop)
+plugins/*/ui/
+packages/usage-analytics-ui/ui/
+apps/desktop/plugin-ui/

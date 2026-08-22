@@ -10,10 +10,6 @@ function origins(source: TrustedOriginSource): string[] {
 /** Anything exposing a webContents (BrowserWindow, WebContentsView, …). */
 export type SecurableContents = { webContents: WebContents } | BrowserWindow | WebContentsView
 
-function contentsOf(target: SecurableContents): WebContents {
-  return target.webContents
-}
-
 export function secureWindow(
   target: SecurableContents,
   trustedFileRoots: string[] = [],

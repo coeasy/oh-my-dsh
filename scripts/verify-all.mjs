@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const steps = ['hygiene', 'typecheck', 'lint', 'format:check', 'test', 'audit:layers', 'compile']
+const steps = ['hygiene', 'typecheck', 'lint', 'format:check', 'test', 'verify:web-profile', 'audit:layers', 'compile']
 
 for (const script of steps) {
   const result = spawnSync('pnpm', ['run', script], {

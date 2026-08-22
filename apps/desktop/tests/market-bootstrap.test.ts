@@ -23,7 +23,10 @@ afterEach(() => {
 const writeManifest = (dshHome: string, marketVersion: string): void => {
   const dir = join(dshHome, 'profiles', 'web', 'node_modules', '@coeasy', 'dsh-plugin-marketplace')
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: '@coeasy/dsh-plugin-marketplace', version: marketVersion }))
+  writeFileSync(
+    join(dir, 'package.json'),
+    JSON.stringify({ name: '@coeasy/dsh-plugin-marketplace', version: marketVersion }),
+  )
 }
 
 describe('market version freshness', () => {

@@ -1,5 +1,12 @@
 export type MarketActionKind =
-  'install' | 'update' | 'remove' | 'toggle' | 'restore' | 'sync' | 'uninstall-market' | 'uninstall-app'
+  | 'install'
+  | 'update'
+  | 'remove'
+  | 'toggle'
+  | 'restore'
+  | 'sync'
+  | 'uninstall-market'
+  | 'uninstall-app'
 
 export interface MarketActionRequest {
   kind: MarketActionKind

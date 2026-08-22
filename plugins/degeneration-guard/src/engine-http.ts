@@ -72,7 +72,10 @@ export function registerDegenerationGuardHttpApi(
         }
         const svc = getService() as DegenerationGuardServiceLike | null
         if (!svc) {
-          sendJson(res, 503, { ok: false, error: 'Degeneration Guard plugin is not loaded/enabled' })
+          sendJson(res, 503, {
+            ok: false,
+            error: 'Degeneration Guard plugin is not loaded/enabled',
+          })
           return
         }
         const fn = svc[method]

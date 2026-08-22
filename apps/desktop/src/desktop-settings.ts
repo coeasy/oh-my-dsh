@@ -72,7 +72,11 @@ export function parseDesktopSettings(text: string): DesktopSettings {
   }
   if (typeof record.autoUpdate === 'boolean') settings.autoUpdate = record.autoUpdate
   if (typeof record.apiKeyPrompted === 'boolean') settings.apiKeyPrompted = record.apiKeyPrompted
-  if (record.windowBounds && typeof record.windowBounds === 'object' && !Array.isArray(record.windowBounds)) {
+  if (
+    record.windowBounds &&
+    typeof record.windowBounds === 'object' &&
+    !Array.isArray(record.windowBounds)
+  ) {
     const raw = record.windowBounds as Record<string, unknown>
     const b: WindowBounds = {}
     if (typeof raw.x === 'number' && Number.isFinite(raw.x)) b.x = raw.x
@@ -90,12 +94,18 @@ export function parseDesktopSettings(text: string): DesktopSettings {
     settings.marketUserRemoved = record.marketUserRemoved
   if (typeof record.harnessHome === 'string' && record.harnessHome.trim())
     settings.harnessHome = record.harnessHome.trim()
-  if (record.pluginHomes && typeof record.pluginHomes === 'object' && !Array.isArray(record.pluginHomes)) {
+  if (
+    record.pluginHomes &&
+    typeof record.pluginHomes === 'object' &&
+    !Array.isArray(record.pluginHomes)
+  ) {
     const raw = record.pluginHomes as { primary?: unknown; mirrors?: unknown }
     const cfg: PluginHomesConfig = {}
     if (typeof raw.primary === 'string' && raw.primary.trim()) cfg.primary = raw.primary.trim()
     if (Array.isArray(raw.mirrors)) {
-      const mirrors = raw.mirrors.filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
+      const mirrors = raw.mirrors.filter(
+        (m): m is string => typeof m === 'string' && m.trim().length > 0,
+      )
       if (mirrors.length > 0) cfg.mirrors = mirrors.map((m) => m.trim())
     }
     if (cfg.primary !== undefined || cfg.mirrors !== undefined) settings.pluginHomes = cfg

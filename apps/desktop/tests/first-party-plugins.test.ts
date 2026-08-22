@@ -26,31 +26,30 @@ afterEach(() => {
 })
 
 describe('first-party built-in plugin manifest', () => {
-  it('lists all three built-in plugins with their npm names', () => {
-    assert.deepEqual(
-      FIRST_PARTY_PLUGINS.map((p) => p.name).sort(),
-      [
-        '@dsh/plugin-degeneration-guard',
-        '@dsh/plugin-model-config',
-        '@dsh/plugin-usage-analytics',
-      ],
-    )
+  it('lists all four built-in plugins with their npm names', () => {
+    assert.deepEqual(FIRST_PARTY_PLUGINS.map((p) => p.name).sort(), [
+      '@dsh/plugin-degeneration-guard',
+      '@dsh/plugin-desktop-bridge',
+      '@dsh/plugin-model-config',
+      '@dsh/plugin-usage-analytics',
+    ])
   })
 
   it('prod dirs match the bundled-plugins layout shipped by copy-bundled-plugins.mjs', () => {
-    assert.deepEqual(
-      FIRST_PARTY_PLUGINS.map((p) => p.prodDir).sort(),
-      [
-        'bundled-plugins/plugin-degeneration-guard',
-        'bundled-plugins/plugin-model-config',
-        'bundled-plugins/plugin-usage-analytics',
-      ],
-    )
+    assert.deepEqual(FIRST_PARTY_PLUGINS.map((p) => p.prodDir).sort(), [
+      'bundled-plugins/plugin-degeneration-guard',
+      'bundled-plugins/plugin-desktop-bridge',
+      'bundled-plugins/plugin-model-config',
+      'bundled-plugins/plugin-usage-analytics',
+    ])
   })
 
   it('dev dirs point at real plugin packages in the repo checkout', () => {
     for (const { name, devDir } of FIRST_PARTY_PLUGINS) {
-      assert.ok(existsSync(join(REPO_ROOT, devDir, 'package.json')), `${name} should have package.json at ${devDir}`)
+      assert.ok(
+        existsSync(join(REPO_ROOT, devDir, 'package.json')),
+        `${name} should have package.json at ${devDir}`,
+      )
     }
   })
 })
@@ -88,10 +87,7 @@ describe('ensureFirstPartyPlugins (best-effort, never fatal)', () => {
       // installed copy (node_modules/<pkg>/package.json) carries the version.
       const nm = join(web, 'node_modules', name)
       mkdirSync(nm, { recursive: true })
-      writeFileSync(
-        join(nm, 'package.json'),
-        JSON.stringify({ name, version }),
-      )
+      writeFileSync(join(nm, 'package.json'), JSON.stringify({ name, version }))
     }
     writeFileSync(
       join(web, 'package.json'),
@@ -104,10 +100,7 @@ describe('ensureFirstPartyPlugins (best-effort, never fatal)', () => {
     for (const { path } of plugins) {
       mkdirSync(path, { recursive: true })
       const name = Object.keys(deps).find((n) => path.endsWith(n)) ?? ''
-      writeFileSync(
-        join(path, 'package.json'),
-        JSON.stringify({ name, version: deps[name] }),
-      )
+      writeFileSync(join(path, 'package.json'), JSON.stringify({ name, version: deps[name] }))
     }
     await ensureFirstPartyPlugins('definitely-not-a-real-dsh-command', plugins, [home])
     // No assertion needed beyond "did not throw": the whole point is silence.

@@ -11,8 +11,11 @@
  * without network or a real engine.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import type { PathLike } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
+import { normalize as posixNormalize } from 'node:path/posix'
+import { inflateRawSync } from 'node:zlib'
 
 export interface EngineUpdateManifest {
   version: string
@@ -107,20 +110,81 @@ export function compareVersions(a: string, b: string): number {
 }
 
 /**
- * Pick the highest usable versioned engine dir in the cache, or undefined.
- * This is the activation candidate: launchHost prefers it over the bundled engine.
+ * Active-version pin files. Writing `.active` pins rollback to an exact version;
+ * clearing it lets the highest usable version win again.
+ */
+export function activeEngineMarkerPath(cacheRoot: string): string {
+  return join(resolve(cacheRoot), '.active')
+}
+
+function defaultReadActive(root: string): string | undefined {
+  try {
+    const value = String(readFileSync(activeEngineMarkerPath(root), 'utf8')).trim()
+    return isEngineVersion(value) ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Read the pinned active engine version, if any marker exists. */
+export function readActiveEngineVersion(
+  cacheRoot: string,
+  readFile = readFileSync,
+): string | undefined {
+  try {
+    const value = String(readFile(activeEngineMarkerPath(cacheRoot), 'utf8')).trim()
+    return isEngineVersion(value) ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Pin the active engine version (used to roll back to an older extraction). */
+export function writeActiveEngineVersion(
+  cacheRoot: string,
+  version: string,
+  writeFile = writeFileSync,
+): void {
+  if (!isEngineVersion(version))
+    throw new Error(`engine-updater: invalid engine version: ${version}`)
+  const mkdir = (p: string) => mkdirSync(p, { recursive: true })
+  mkdir(dirname(activeEngineMarkerPath(cacheRoot)))
+  writeFile(activeEngineMarkerPath(cacheRoot), `${version}\n`, 'utf8')
+}
+
+/** Lift the pin so launch resolves the highest usable version again. */
+export function clearActiveEngineVersion(cacheRoot: string, rm = rmSync): void {
+  try {
+    rm(activeEngineMarkerPath(cacheRoot), { force: true })
+  } catch {
+    // marker already gone
+  }
+}
+
+/**
+ * Pick the engine dir to launch: the pinned version when it is usable and
+ * newer than the bundled engine, otherwise the highest usable extraction.
+ * Undefined means "use the bundled engine".
  */
 export function resolveActiveEngineDir(
   cacheRoot: string,
   currentBundledVersion: string,
   exists = existsSync,
   readdir = readdirSync,
+  readActive = defaultReadActive,
 ): { dir: string; version: string } | undefined {
   let entries: string[]
   try {
     entries = readdir(cacheRoot)
   } catch {
     return undefined
+  }
+  const pinned = readActive(cacheRoot)
+  if (pinned) {
+    const pinDir = engineVersionDir(cacheRoot, pinned)
+    if (isUsableEngineDir(pinDir, exists) && compareVersions(pinned, currentBundledVersion) > 0) {
+      return { dir: pinDir, version: pinned }
+    }
   }
   let best: { dir: string; version: string } | undefined
   for (const entry of entries) {
@@ -211,4 +275,224 @@ export function rollbackCandidate(
       rollback = { dir, version: entry }
   }
   return rollback?.dir
+}
+
+/** A single parsed entry in an in-memory ZIP payload. */
+export interface ZipEntry {
+  /** Posix-relative normalized path, never absolute, no `..`. */
+  path: string
+  isDirectory: boolean
+  isSymlink: boolean
+  data: Uint8Array
+}
+
+const CENTRAL_SIG = 0x02014b50
+const EOCD_SIG = 0x06054b50
+
+function toEntryPath(raw: string): string | undefined {
+  const backward = String(raw || '').replace(/\\/gu, '/')
+  const normalized = posixNormalize(backward).replace(/^\/+/u, '')
+  if (!normalized || normalized === '.' || normalized === '..') return undefined
+  if (normalized === '../' || normalized.split('/').includes('..')) return undefined
+  // Reject drive letters / paths that escape on the host filesystem.
+  if (/^[A-Za-z]:/u.test(normalized)) return undefined
+  return backward.endsWith('/') ? normalized.replace(/\/+$/u, '') : normalized
+}
+
+function u32(view: Uint8Array, off: number): number {
+  return (
+    (view[off]! | (view[off + 1]! << 8) | (view[off + 2]! << 16) | (view[off + 3]! << 24)) >>> 0
+  )
+}
+function u16(view: Uint8Array, off: number): number {
+  return (view[off]! | (view[off + 1]! << 8)) & 0xffff
+}
+
+/**
+ * Parse a ZIP payload from memory into entries with already-decompressed
+ * data. Handles `stored` and `deflate` entries, central-directory driven, and
+ * never follows symlinks (they are flagged, not dereferenced).
+ */
+export function parseZipEntries(blob: Uint8Array): ZipEntry[] {
+  const len = blob.length
+  // Locate the End Of Central Directory record by scanning backward.
+  let eocd = -1
+  for (let i = len - 22; i >= Math.max(0, len - 22 - 65536); i -= 1) {
+    if (u32(blob, i) === EOCD_SIG) {
+      eocd = i
+      break
+    }
+  }
+  if (eocd < 0) throw new Error('engine-updater: not a zip payload (no end-of-central-dir)')
+  const totalEntries = u16(blob, eocd + 10)
+  const cdOffset = u32(blob, eocd + 16)
+  const entries: ZipEntry[] = []
+  let cursor = cdOffset
+  for (let n = 0; n < totalEntries; n += 1) {
+    if (u32(blob, cursor) !== CENTRAL_SIG || cursor + 46 > len) {
+      throw new Error('engine-updater: corrupt zip central directory')
+    }
+    const method = u16(blob, cursor + 10)
+    const compressedSize = u32(blob, cursor + 20)
+    const uncompressedSize = u32(blob, cursor + 24)
+    const fileNameLen = u16(blob, cursor + 28)
+    const extraLen = u16(blob, cursor + 30)
+    const commentLen = u16(blob, cursor + 32)
+    const externalAttrs = u32(blob, cursor + 38)
+    const localOffset = u32(blob, cursor + 42)
+    const rawName = Buffer.from(blob.buffer, blob.byteOffset + cursor + 46, fileNameLen).toString(
+      'utf8',
+    )
+    const entryPath = toEntryPath(rawName)
+    cursor += 46 + fileNameLen + extraLen + commentLen
+    if (entryPath === undefined) continue
+    // Derive the shared local header length to reach this entry's data.
+    if (localOffset + 30 > len || u32(blob, localOffset) !== 0x04034b50) {
+      throw new Error(`engine-updater: corrupt local header for ${entryPath}`)
+    }
+    const localNameLen = u16(blob, localOffset + 26)
+    const localExtraLen = u16(blob, localOffset + 28)
+    const dataStart = localOffset + 30 + localNameLen + localExtraLen
+    const isDir = rawName.endsWith('/')
+    // POSIX mode lives in the high 16 bits; symlinks are S_IFLNK (0xA000).
+    const isSymlink = ((externalAttrs >>> 16) & 0xf000) === 0xa000
+    if (isDir) {
+      entries.push({
+        path: entryPath,
+        isDirectory: true,
+        isSymlink: false,
+        data: new Uint8Array(0),
+      })
+      continue
+    }
+    const raw = blob.slice(dataStart, dataStart + compressedSize)
+    let data: Uint8Array
+    if (method === 0) {
+      data = raw
+    } else if (method === 8) {
+      data = inflateRawSync(raw)
+    } else {
+      throw new Error(`engine-updater: unsupported zip method ${method} for ${entryPath}`)
+    }
+    entries.push({ path: entryPath, isDirectory: isDir, isSymlink, data })
+    void uncompressedSize
+  }
+  return entries
+}
+
+function safeExtractTarget(root: string, rel: string): string {
+  const base = resolve(root)
+  const target = resolve(base, rel)
+  const prefix = base.endsWith(sep) ? base : `${base}${sep}`
+  if (!target.startsWith(prefix)) {
+    throw new Error(`engine-updater: entry escapes extraction root: ${rel}`)
+  }
+  return target
+}
+
+export interface ExtractEnginePayloadInput {
+  cacheRoot: string
+  version: string
+  /** Path to `engine.zip`; defaults to the standard version dir path. */
+  zipPath?: string
+  readFile?: (path: string) => Uint8Array
+  writeFile?: (path: string, data: Uint8Array, mode?: number) => void
+  mkdir?: (dir: string) => void
+  rm?: (path: string, opts?: { force?: boolean }) => void
+  exists?: (path: PathLike) => boolean
+}
+
+/**
+ * Extract a verified `engine.zip` into its versioned dir and validate the
+ * result with `isUsableEngineDir`. Symlinks are explicitly skipped (never
+ * written) and path traversal entries are rejected, so a malicious payload
+ * cannot write outside the versioned cache dir. The zip is removed on success.
+ * Throws on an empty payload or a payload that does not materialize a launchable
+ * engine (no `harness/apps/cli/lib/bin.js` + `origin.json`, nor launcher).
+ */
+export function extractEnginePayload(input: ExtractEnginePayloadInput): {
+  dir: string
+  entries: number
+} {
+  const dir = engineVersionDir(input.cacheRoot, input.version)
+  const zipPath = input.zipPath ?? join(dir, 'engine.zip')
+  const readFile = input.readFile ?? ((p: string) => readFileSync(p))
+  const mkdir = input.mkdir ?? ((p: string) => mkdirSync(p, { recursive: true }))
+  const writeFile =
+    input.writeFile ??
+    ((p: string, d: Uint8Array, mode?: number) => {
+      writeFileSync(p, d, typeof mode === 'number' ? { mode } : undefined)
+    })
+  const rm = input.rm ?? ((p: string, o?: { force?: boolean }) => rmSync(p, o))
+  const blob = readFile(zipPath)
+  const entries = parseZipEntries(blob)
+  mkdir(dir)
+  let files = 0
+  for (const entry of entries) {
+    if (entry.isSymlink) continue // never materialize symlinks
+    const target = safeExtractTarget(dir, entry.path)
+    if (entry.isDirectory) {
+      mkdir(target)
+      continue
+    }
+    mkdir(dirname(target))
+    writeFile(target, entry.data)
+    files += 1
+  }
+  if (files === 0) throw new Error('engine-updater: empty engine zip payload')
+  // Guard the activation step: refuse to publish a half-usable engine. If the
+  // launcher or node binary is missing the dir can never be launched, so the
+  // download+extract rolls back to the previous usable version.
+  if (!existsSync(join(dir, 'origin.json')) || !existsSync(join(dir, 'harness'))) {
+    throw new Error(`engine-updater: engine ${input.version} failed verification after extraction`)
+  }
+  try {
+    rm(zipPath, { force: true })
+  } catch {
+    // zip removal is best-effort
+  }
+  return { dir, entries: files }
+}
+
+/**
+ * Ensure an already-downloaded+verified version is extracted to a launchable
+ * form and then recorded as the active engine. Safe to call more than once: a
+ * version that is already extracted and has no `engine.zip` left is reused.
+ */
+export function activateEngineVersion(input: {
+  cacheRoot: string
+  version: string
+  readFile?: (path: string) => Uint8Array
+  writeFile?: (path: string, data: Uint8Array, mode?: number) => void
+  mkdir?: (dir: string) => void
+  rm?: (path: string, opts?: { force?: boolean }) => void
+  exists?: (path: PathLike) => boolean
+}): { dir: string; entries: number } {
+  const dir = engineVersionDir(input.cacheRoot, input.version)
+  const exists = input.exists ?? existsSync
+  const zipPath = join(dir, 'engine.zip')
+  if (isUsableEngineDir(dir, exists) && !exists(zipPath)) {
+    // Already extracted previously; just (re)pin it.
+    writeActiveEngineVersion(input.cacheRoot, input.version)
+    return { dir, entries: 0 }
+  }
+  const info = extractEnginePayload({
+    cacheRoot: input.cacheRoot,
+    version: input.version,
+    readFile: input.readFile,
+    writeFile: input.writeFile,
+    mkdir: input.mkdir,
+    rm: input.rm,
+    exists: input.exists,
+  })
+  if (!isUsableEngineDir(info.dir, exists)) {
+    throw new Error(`engine-updater: engine ${input.version} is not a launchable engine dir`)
+  }
+  writeActiveEngineVersion(input.cacheRoot, input.version)
+  return info
+}
+
+/** Launcher file name for an extracted engine payload root. */
+export function engineLauncherName(platform = process.platform): string {
+  return platform === 'win32' ? 'dsh.cmd' : 'dsh'
 }

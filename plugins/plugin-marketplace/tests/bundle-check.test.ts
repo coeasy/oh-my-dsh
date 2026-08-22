@@ -11,14 +11,24 @@ function makeProfile(): string {
   mkdirSync(join(profileDir, 'node_modules', '@acme', 'plugin'), { recursive: true })
   writeFileSync(
     join(profileDir, 'package.json'),
-    JSON.stringify({ name: 'dsh-profile-web', private: true, dependencies: { '@acme/plugin': '1.0.0' } }),
+    JSON.stringify({
+      name: 'dsh-profile-web',
+      private: true,
+      dependencies: { '@acme/plugin': '1.0.0' },
+    }),
   )
   return profileDir
 }
 
 function writePlugin(
   profileDir: string,
-  opts: { main?: string; mainBody?: string; patch?: string | null; writePatch?: boolean; entry?: string },
+  opts: {
+    main?: string
+    mainBody?: string
+    patch?: string | null
+    writePatch?: boolean
+    entry?: string
+  },
 ): void {
   const pkgDir = join(profileDir, 'node_modules', '@acme', 'plugin')
   const manifest: Record<string, unknown> = {
@@ -33,7 +43,10 @@ function writePlugin(
   writeFileSync(join(pkgDir, 'package.json'), JSON.stringify(manifest))
   const patchPath = opts.patch ?? './cordis.patch.yml'
   if (opts.writePatch !== false) {
-    writeFileSync(join(pkgDir, patchPath), '- insert:\n    - id: acme\n      name: "@acme/plugin"\n')
+    writeFileSync(
+      join(pkgDir, patchPath),
+      '- insert:\n    - id: acme\n      name: "@acme/plugin"\n',
+    )
   }
   if (opts.entry) {
     mkdirSync(join(pkgDir, 'lib'), { recursive: true })
@@ -68,7 +81,11 @@ describe('validateInstalledBundle', () => {
     writePlugin(profileDir, { entry: 'ok', mainBody: 'export const name = ;\n' })
     const r = validateInstalledBundle(profileDir, '@acme/plugin')
     assert.equal(r.ok, false)
-    assert.ok(r.errors.some((e) => e.includes('syntax') || e.includes('Unexpected') || e.includes('Failed')))
+    assert.ok(
+      r.errors.some(
+        (e) => e.includes('syntax') || e.includes('Unexpected') || e.includes('Failed'),
+      ),
+    )
   })
 
   it('rejects a bundle without dsh.bundle declaration', () => {

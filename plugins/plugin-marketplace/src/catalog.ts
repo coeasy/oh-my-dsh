@@ -116,7 +116,8 @@ export const FIRST_PARTY_CATALOG_ENTRIES: RegistryEntry[] = [
   {
     name: 'plugin-model-config',
     full_name: `${FIRST_PARTY_NAMESPACE}/plugin-model-config`,
-    description: '模型配置：分阶段模型路由（默认/规划/子代理/评估）、推理强度与 Profiles。客户端内置。',
+    description:
+      '模型配置：分阶段模型路由（默认/规划/子代理/评估）、推理强度与 Profiles。客户端内置。',
     url: 'https://github.com/coeasy/oh-my-dsh/tree/main/plugins/model-config',
     stars: 0,
     updated_at: '',

@@ -58,6 +58,10 @@ jobs:
       - name: Compile all targets
         run: pnpm compile
 
+      - name: Desktop E2E (Electron + stub engine, Windows)
+        if: runner.os == 'Windows'
+        run: pnpm e2e:desktop
+
   pack:
     name: pack smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

@@ -263,12 +263,11 @@ export async function createService(
   if (config.engine?.webServer) {
     registerHttp(config.engine.webServer)
   } else if (typeof (ctx as unknown as { inject?: unknown }).inject === 'function') {
-    ;(ctx as unknown as {
-      inject(
-        deps: string[],
-        fn: (hostCtx: { get(name: string): unknown }) => void,
-      ): void
-    }).inject(['webServer'], (hostCtx) => {
+    ;(
+      ctx as unknown as {
+        inject(deps: string[], fn: (hostCtx: { get(name: string): unknown }) => void): void
+      }
+    ).inject(['webServer'], (hostCtx) => {
       const webServer = hostCtx.get('webServer')
       if (webServer) registerHttp(webServer as import('./engine-http.ts').WebServerLike)
     })

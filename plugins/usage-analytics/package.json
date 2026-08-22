@@ -1,6 +1,6 @@
 {
   "name": "@dsh/plugin-usage-analytics",
-  "version": "0.1.0-build.bf04a5b1",
+  "version": "0.1.0-build.08fe22f8",
   "private": true,
   "type": "module",
   "description": "Cordis bundle: Usage Analytics collector — safe usage observation, normalization, storage and query API.",

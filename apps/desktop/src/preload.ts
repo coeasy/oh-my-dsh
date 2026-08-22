@@ -14,159 +14,24 @@ contextBridge.exposeInMainWorld('dshDesktop', {
     ipcRenderer.invoke('model-config:action', request),
   degenerationGuard: (request: { kind: 'call'; method: string; args?: unknown[] }) =>
     ipcRenderer.invoke('degeneration-guard:action', request),
+  /** Open an in-window plugin config panel (embedded WebContentsView). */
+  pluginConfigOpen: (request: { plugin: string }) =>
+    ipcRenderer.invoke('plugin-config:open', request),
   /** Close the in-window plugin panel (main-window embedded WebContentsView). */
   pluginConfigClose: () => ipcRenderer.invoke('plugin-config:close'),
+  /** Open the mobile LAN pairing window. */
+  mobileOpenPairing: () => ipcRenderer.invoke('mobile:open-pairing'),
+  /** Read the mobile LAN bridge connection snapshot. */
+  mobileStatus: () => ipcRenderer.invoke('mobile:status'),
+  /** Check for an engine update (approval dialog on the desktop side). */
+  engineCheckUpdate: () => ipcRenderer.invoke('engine:check-update'),
+  /** Engine activity snapshot: active/pending versions + whether rollback exists. */
+  engineActivity: () => ipcRenderer.invoke('engine:activity'),
+  /** Activate a downloaded engine and restart the shell. */
+  engineActivate: () => ipcRenderer.invoke('engine:activate'),
+  /** Roll back to the previous usable engine and restart the shell. */
+  engineRollback: () => ipcRenderer.invoke('engine:rollback'),
 })
-
-const MOBILE_BUTTON_ID = 'dsh-desktop-mobile-button'
-const phoneIcon = `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true"><rect x="7" y="2.75" width="10" height="18.5" rx="2.25" stroke="currentColor" stroke-width="1.7"/><path d="M10.2 5.5h3.6M10.5 18.35h3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`
-const locale = navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en'
-let phoneConnected = false
-function mountMobileButton(): void {
-  let style = document.getElementById(`${MOBILE_BUTTON_ID}-style`)
-  if (!style) {
-    style = document.createElement('style')
-    style.id = `${MOBILE_BUTTON_ID}-style`
-    style.textContent = `
-      [data-dsh-sidebar-footer] { position: relative; }
-      [data-dsh-sidebar-root][data-dsh-sidebar-wide="true"] [data-dsh-sidebar-footer] > [class*="settingsArea"] { padding-right: 38px; }
-      #${MOBILE_BUTTON_ID} { appearance:none; position:relative; width:32px; height:32px; color:var(--dsw-alias-label-secondary,#73777f); background:transparent; border:0; border-radius:9px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
-      [data-dsh-sidebar-root][data-dsh-sidebar-wide="true"] #${MOBILE_BUTTON_ID} { position:absolute; right:0; top:50%; transform:translateY(-50%); }
-      [data-dsh-sidebar-root][data-dsh-sidebar-wide="false"] #${MOBILE_BUTTON_ID} { margin-top:5px; }
-      #${MOBILE_BUTTON_ID}:hover { color:var(--dsw-alias-label-primary,#202124); background:var(--dsw-alias-interactive-bg-hover,rgba(32,33,36,.08)); }
-      #${MOBILE_BUTTON_ID}[hidden] { display:none; }
-      #${MOBILE_BUTTON_ID} > span { position:absolute; top:4px; right:4px; width:7px; height:7px; border:1.5px solid var(--dsw-specific-sidebar-fill,#fff); border-radius:50%; background:#4da66d; opacity:0; }
-      #${MOBILE_BUTTON_ID}.is-connected > span { opacity:1; }
-    `
-    document.head.appendChild(style)
-  }
-  const footer = document.querySelector<HTMLElement>('[data-dsh-sidebar-footer]')
-  if (!footer) return
-  let button = document.getElementById(MOBILE_BUTTON_ID) as HTMLButtonElement | null
-  if (!button) {
-    button = document.createElement('button')
-    button.id = MOBILE_BUTTON_ID
-    button.type = 'button'
-    button.innerHTML = `${phoneIcon}<span aria-hidden="true"></span>`
-    button.addEventListener('click', () => {
-      void ipcRenderer.invoke('mobile:open-pairing').catch((error: unknown) => {
-        console.error('[mobile] unable to open pairing window', error)
-      })
-    })
-  }
-  if (button.parentElement !== footer) footer.appendChild(button)
-  const root = document.querySelector<HTMLElement>('[data-dsh-sidebar-root]')
-  const wide = root?.dataset.dshSidebarWide === 'true'
-  button.hidden = !wide && !phoneConnected
-  button.classList.toggle('is-connected', phoneConnected)
-  const label = phoneConnected
-    ? locale === 'zh'
-      ? '管理手机连接'
-      : 'Manage phone connection'
-    : locale === 'zh'
-      ? '连接手机'
-      : 'Connect phone'
-  button.setAttribute('aria-label', label)
-  button.title = label
-}
-
-/** Bundled first-party plugin config windows (opened from the sidebar). */
-const PLUGIN_CONFIG_ENTRIES = [
-  {
-    id: 'model-config',
-    icon: `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="15" cy="7" r="2.4" stroke="currentColor" stroke-width="1.8"/><circle cx="7" cy="17" r="2.4" stroke="currentColor" stroke-width="1.8"/></svg>`,
-    label: '模型配置',
-    labelEn: 'Model',
-  },
-  {
-    id: 'degeneration-guard',
-    icon: `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" aria-hidden="true"><path d="M12 3l7 3v5c0 4.4-3 8-7 10-4-2-7-5.6-7-10V6l7-3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    label: '退化防护',
-    labelEn: 'Guard',
-  },
-  {
-    id: 'usage-analytics',
-    icon: `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
-    label: '用量分析',
-    labelEn: 'Usage',
-  },
-]
-const PLUGIN_CONFIG_GROUP_ID = 'dsh-plugin-config-entries'
-
-/**
- * Sidebar DOM bridge. Upstream renders the sidebar with CSS-module class
- * names; only the local halves (footArea / settingsArea / collapsed) survive
- * name hashing, so those are the stable hooks. This discovers the real
- * footer and projects the data-dsh-sidebar-* attributes onto it that the
- * mounts and styles below anchor on — without it nothing ever renders
- * because no such attributes exist in the upstream DOM.
- */
-function syncSidebarAttributes(): void {
-  const footer = document.querySelector<HTMLElement>('[class*="footArea"]')
-  if (!footer) return
-  const root = footer.parentElement
-  if (!root) return
-  // The narrow rail carries the hashed `collapsed` local class; the wide
-  // column does not (it only fades through during the collapse animation).
-  const wide = !Array.from(root.classList).some((name) => name.includes('collapsed'))
-  if (footer.getAttribute('data-dsh-sidebar-footer') === null) {
-    footer.setAttribute('data-dsh-sidebar-footer', '')
-  }
-  if (root.getAttribute('data-dsh-sidebar-root') === null) {
-    root.setAttribute('data-dsh-sidebar-root', '')
-  }
-  if (root.getAttribute('data-dsh-sidebar-wide') !== String(wide)) {
-    root.setAttribute('data-dsh-sidebar-wide', String(wide))
-  }
-}
-
-function mountPluginConfigEntries(): void {
-  let style = document.getElementById(`${PLUGIN_CONFIG_GROUP_ID}-style`)
-  if (!style) {
-    style = document.createElement('style')
-    style.id = `${PLUGIN_CONFIG_GROUP_ID}-style`
-    style.textContent = `
-      #${PLUGIN_CONFIG_GROUP_ID} { display:flex; align-items:center; gap:2px; padding:0 4px; }
-      [data-dsh-sidebar-root][data-dsh-sidebar-wide="true"] #${PLUGIN_CONFIG_GROUP_ID} { padding:4px 4px 2px; border-top:1px solid var(--dsw-alias-border,rgba(0,0,0,.08)); margin-bottom:4px; }
-      #${PLUGIN_CONFIG_GROUP_ID} > button { appearance:none; position:relative; min-width:32px; height:32px; padding:0 7px; color:var(--dsw-alias-label-secondary,#73777f); background:transparent; border:0; border-radius:9px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; font:12px/1 system-ui,sans-serif; white-space:nowrap; }
-      #${PLUGIN_CONFIG_GROUP_ID} > button.is-narrow { padding:0; justify-content:center; width:32px; }
-      #${PLUGIN_CONFIG_GROUP_ID} > button.is-narrow .dsh-pc-label { display:none; }
-      #${PLUGIN_CONFIG_GROUP_ID} > button:hover { color:var(--dsw-alias-label-primary,#202124); background:var(--dsw-alias-interactive-bg-hover,rgba(32,33,36,.08)); }
-    `
-    document.head.appendChild(style)
-  }
-  const footer = document.querySelector<HTMLElement>('[data-dsh-sidebar-footer]')
-  if (!footer) return
-  const root = document.querySelector<HTMLElement>('[data-dsh-sidebar-root]')
-  const wide = root?.dataset.dshSidebarWide === 'true'
-  let group = document.getElementById(PLUGIN_CONFIG_GROUP_ID) as HTMLElement | null
-  if (!group) {
-    group = document.createElement('div')
-    group.id = PLUGIN_CONFIG_GROUP_ID
-    footer.insertBefore(group, footer.firstChild)
-  }
-  for (const entry of PLUGIN_CONFIG_ENTRIES) {
-    let btn = document.getElementById(`dsh-pc-${entry.id}`) as HTMLButtonElement | null
-    if (!btn) {
-      btn = document.createElement('button')
-      btn.id = `dsh-pc-${entry.id}`
-      btn.type = 'button'
-      btn.innerHTML = `${entry.icon}<span class="dsh-pc-label"></span>`
-      btn.addEventListener('click', () => {
-        void ipcRenderer.invoke('plugin-config:open', { plugin: entry.id }).catch((error: unknown) => {
-          console.error('[plugin-config] unable to open window', error)
-        })
-      })
-      group.appendChild(btn)
-    }
-    const label = locale === 'zh' ? entry.label : entry.labelEn
-    const labelEl = btn.querySelector('.dsh-pc-label')
-    if (labelEl) labelEl.textContent = label
-    btn.classList.toggle('is-narrow', !wide)
-    btn.setAttribute('aria-label', label)
-    btn.title = label
-  }
-}
 
 /**
  * Auto-skip the engine's first-run onboarding takeover ("Add an API key to
@@ -198,16 +63,6 @@ async function autoSkipOnboarding(): Promise<void> {
   const observer = new MutationObserver(() => trySkip())
   observer.observe(document.documentElement, { childList: true, subtree: true })
   window.setTimeout(() => observer.disconnect(), 20_000)
-}
-
-async function refreshMobileStatus(): Promise<void> {
-  try {
-    const status = (await ipcRenderer.invoke('mobile:status')) as { connected?: boolean }
-    phoneConnected = status.connected === true
-    mountMobileButton()
-  } catch (error) {
-    console.warn('[mobile] unable to read connection status', error)
-  }
 }
 
 const USAGE_BAR_ID = 'dsh-usage-status-bar'
@@ -337,24 +192,6 @@ function mountUsageStatusBar(): void {
   void refreshUsageBar()
 }
 
-// Rerunning the sidebar bridge on every mutation synchronously can spin the
-// renderer: the mount helpers themselves touch childList/class, which
-// re-triggers the observer — on a page whose React layout churns (collapse
-// animations, HMR) that becomes an unbounded loop and the UI freezes white.
-// Coalescing to one pass per animation frame breaks the cycle while still
-// tracking every relevant change.
-let sidebarSyncQueued = false
-function queueSidebarSync(): void {
-  if (sidebarSyncQueued) return
-  sidebarSyncQueued = true
-  requestAnimationFrame(() => {
-    sidebarSyncQueued = false
-    syncSidebarAttributes()
-    mountMobileButton()
-    mountPluginConfigEntries()
-  })
-}
-
 /** Engine SPA only: the in-window plugin panels load over file:// and must not
  * run the engine UI injections (usage bar / sidebar bridges / onboarding). */
 function isEnginePage(): boolean {
@@ -365,24 +202,6 @@ function initializeUi(): void {
   if (!isEnginePage()) return
   mountUsageStatusBar()
   scheduleUsageBarPoll()
-  syncSidebarAttributes()
-  mountMobileButton()
-  mountPluginConfigEntries()
-  // React re-renders swap sidebar DOM nodes and toggle the hashed collapsed
-  // class on width changes; re-project the bridge attributes, then re-mount
-  // (every mount is idempotent, so a no-op pass costs nothing). Observing
-  // class mutations on the whole tree is the only hash-proof signal — the
-  // bridge's own attribute writes never touch class, and the rAF coalescing
-  // above makes re-mounting safe even when it does.
-  const sidebarObserver = new MutationObserver(() => queueSidebarSync())
-  sidebarObserver.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['class'],
-  })
-  void refreshMobileStatus()
-  window.setInterval(() => void refreshMobileStatus(), 1000)
   void autoSkipOnboarding()
 }
 

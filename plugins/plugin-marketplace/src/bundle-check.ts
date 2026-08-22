@@ -19,11 +19,12 @@ import { nodeExecutable } from './install.ts'
 
 /** Parse-only syntax check of one module via `node --check` (never executes). */
 function syntaxCheck(path: string): string | null {
-  const check = spawnSync(
-    nodeExecutable(),
-    ['--check', path],
-    { encoding: 'utf8', windowsHide: true, timeout: 20_000, env: { ...process.env, CI: 'true' } },
-  )
+  const check = spawnSync(nodeExecutable(), ['--check', path], {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 20_000,
+    env: { ...process.env, CI: 'true' },
+  })
   if (check.status === 0) return null
   const err = check.stderr || check.stdout
   return `${err}`.slice(0, 600) || `syntax check failed for ${path}`

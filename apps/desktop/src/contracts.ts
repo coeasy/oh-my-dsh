@@ -1,4 +1,4 @@
-export type RuntimePhase = 'idle' | 'starting' | 'ready' | 'stopping' | 'failed'
+export type RuntimePhase = 'idle' | 'starting' | 'ready' | 'stopping' | 'restarting' | 'failed'
 
 export interface RuntimeSnapshot {
   phase: RuntimePhase

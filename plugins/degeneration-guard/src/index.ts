@@ -150,12 +150,11 @@ export async function createService(
   if (config.engine?.webServer) {
     registerHttp(config.engine.webServer)
   } else if (typeof (ctx as unknown as { inject?: unknown }).inject === 'function') {
-    ;(ctx as unknown as {
-      inject(
-        deps: string[],
-        fn: (hostCtx: { get(name: string): unknown }) => void,
-      ): void
-    }).inject(['webServer'], (hostCtx) => {
+    ;(
+      ctx as unknown as {
+        inject(deps: string[], fn: (hostCtx: { get(name: string): unknown }) => void): void
+      }
+    ).inject(['webServer'], (hostCtx) => {
       const webServer = hostCtx.get('webServer')
       if (webServer) registerHttp(webServer as import('./engine-http.ts').WebServerLike)
     })
@@ -168,10 +167,7 @@ export async function createService(
  * `degenerationGuard`, and return void so the engine loader accepts the
  * effect. Host bridges reach the service via
  * `ctx.get('degenerationGuard')` / `ctx.degenerationGuard`. */
-export async function apply(
-  ctx: GuardContext,
-  config: GuardOptions = {},
-): Promise<void> {
+export async function apply(ctx: GuardContext, config: GuardOptions = {}): Promise<void> {
   const service = await createService(ctx, config)
   const c = ctx as unknown as {
     provide?: (name: string, value: DegenerationGuardService) => void

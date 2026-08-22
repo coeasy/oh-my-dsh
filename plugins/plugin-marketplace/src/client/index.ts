@@ -13,18 +13,14 @@ import { createElement as h, useCallback, useEffect, useRef, useState } from 're
 const API = '/coeasy-market/api'
 
 type MarketActionKind =
-  'install' | 'update' | 'remove' | 'toggle' | 'restore' | 'sync' | 'uninstall-market' | 'uninstall-app'
-
-declare global {
-  interface Window {
-    dshDesktop?: {
-      marketAction?: (request: {
-        kind: MarketActionKind
-        payload: Record<string, unknown>
-      }) => Promise<unknown>
-    }
-  }
-}
+  | 'install'
+  | 'update'
+  | 'remove'
+  | 'toggle'
+  | 'restore'
+  | 'sync'
+  | 'uninstall-market'
+  | 'uninstall-app'
 
 const brokerPending = new Map<
   string,
@@ -256,7 +252,8 @@ const dict = {
     homesSyncing: 'Syncing homes…',
     homesSynced: 'Homes in sync',
     homesSyncPartial: 'Some homes failed to sync, see output',
-    homesNote: 'Install/update/remove is replayed to the primary and every mirror (idempotent official dsh).',
+    homesNote:
+      'Install/update/remove is replayed to the primary and every mirror (idempotent official dsh).',
     homesDep: 'Deps',
     homesBundle: 'Layers',
     homesMissingOf: 'Missing',
@@ -1156,7 +1153,11 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
       'div',
       { style: { ...S.toolbar, gap: '6px' } },
       h('button', { style: !mine ? S.chipOn : S.chip, onClick: () => setMine(false) }, t('all')),
-      h('button', { style: mine ? S.chipOn : S.chip, onClick: () => setMine(true) }, t('installed')),
+      h(
+        'button',
+        { style: mine ? S.chipOn : S.chip, onClick: () => setMine(true) },
+        t('installed'),
+      ),
     ),
     sources.length > 1
       ? h(
@@ -1276,7 +1277,11 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
               ? h(
                   'div',
                   { style: { ...S.detail, marginTop: '6px', maxHeight: '220px' } },
-                  h('div', { style: { fontWeight: 600, fontSize: '12px', marginBottom: '2px' } }, t('homes')),
+                  h(
+                    'div',
+                    { style: { fontWeight: 600, fontSize: '12px', marginBottom: '2px' } },
+                    t('homes'),
+                  ),
                   h('div', { style: { ...S.note, marginBottom: '4px' } }, t('homesNote')),
                   homes.length === 0
                     ? h('div', { style: S.note }, '—')
@@ -1328,17 +1333,37 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
                             ),
                             h(
                               'span',
-                              { style: { fontSize: '12px', flex: '1', wordBreak: 'break-all' as const } },
+                              {
+                                style: {
+                                  fontSize: '12px',
+                                  flex: '1',
+                                  wordBreak: 'break-all' as const,
+                                },
+                              },
                               String(hm.path),
                             ),
-                            h('span', { style: { fontSize: '11px', color: statusColor, whiteSpace: 'nowrap' as const } }, statusText),
+                            h(
+                              'span',
+                              {
+                                style: {
+                                  fontSize: '11px',
+                                  color: statusColor,
+                                  whiteSpace: 'nowrap' as const,
+                                },
+                              },
+                              statusText,
+                            ),
                           ),
                           h(
                             'div',
                             { style: { ...S.meta, marginTop: '2px' } },
                             `${t('homesDep')}: ${(hm.dependencies as string[])?.length ?? 0} · ${t('homesBundle')}: ${(hm.bundles as string[])?.length ?? 0}` +
-                              (missing.length ? ` · ${t('homesMissingOf')}: ${missing.join(', ')}` : '') +
-                              (drifted.length ? ` · ${t('homesDrifted')}: ${drifted.join(', ')}` : '') +
+                              (missing.length
+                                ? ` · ${t('homesMissingOf')}: ${missing.join(', ')}`
+                                : '') +
+                              (drifted.length
+                                ? ` · ${t('homesDrifted')}: ${drifted.join(', ')}`
+                                : '') +
                               (extra.length ? ` · ${t('homesExtraOf')}: ${extra.join(', ')}` : ''),
                           ),
                         )
@@ -1393,12 +1418,32 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
                     fn,
                   ),
                   r.firstParty
-                    ? h('span', { style: { ...S.badge, background: 'rgba(47,111,235,0.16)', color: '#58a6ff' } }, t('builtin'))
+                    ? h(
+                        'span',
+                        {
+                          style: {
+                            ...S.badge,
+                            background: 'rgba(47,111,235,0.16)',
+                            color: '#58a6ff',
+                          },
+                        },
+                        t('builtin'),
+                      )
                     : null,
                   r.curated ? h('span', { style: S.badge }, t('curated')) : null,
                   r.installed ? h('span', { style: S.badgeGreen }, t('installed')) : null,
                   r.installed && !r.inBundles
-                    ? h('span', { style: { ...S.badge, background: 'rgba(245,158,11,0.18)', color: '#f59e0b' } }, t('notActive'))
+                    ? h(
+                        'span',
+                        {
+                          style: {
+                            ...S.badge,
+                            background: 'rgba(245,158,11,0.18)',
+                            color: '#f59e0b',
+                          },
+                        },
+                        t('notActive'),
+                      )
                     : null,
                   typeof r.type === 'string' && r.type !== 'unknown'
                     ? h('span', { style: S.badgeGray }, String(r.type))
@@ -1479,7 +1524,11 @@ function MarketSection({ locale }: { locale: Locale }): ReturnType<typeof h> {
                   ? h(
                       'button',
                       {
-                        style: { ...S.cardBtnPrimary, background: 'rgba(245,158,11,0.9)', color: '#111' },
+                        style: {
+                          ...S.cardBtnPrimary,
+                          background: 'rgba(245,158,11,0.9)',
+                          color: '#111',
+                        },
                         disabled: busy !== null,
                         onClick: () => void openConfirm('install', r),
                       },

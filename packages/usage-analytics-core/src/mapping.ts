@@ -132,9 +132,13 @@ export function applyUsageMapping(usageJson: unknown, mapping: ProviderMapping):
   for (const [field, candidates] of Object.entries(mapping.usage)) {
     let value: number | undefined = undefined
     for (const cand of candidates) {
-      const v = cand.includes('..') ? resolveRecursive(usageJson, cand) : resolvePath(usageJson, cand)
+      const v = cand.includes('..')
+        ? resolveRecursive(usageJson, cand)
+        : resolvePath(usageJson, cand)
       if (Array.isArray(v)) {
-        const first = v.find((x): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0)
+        const first = v.find(
+          (x): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0,
+        )
         if (first !== undefined) {
           value = first
           break

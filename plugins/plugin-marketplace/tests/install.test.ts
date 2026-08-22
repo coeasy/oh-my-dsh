@@ -96,7 +96,10 @@ describe('healPnpmBuildGate', () => {
     workspace(dir, 'allowBuilds:\n  node-pty: true\n  ssh2: false\n')
     const r = healPnpmBuildGate(dir)
     assert.equal(r.changed, false)
-    assert.equal(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8'), 'allowBuilds:\n  node-pty: true\n  ssh2: false\n')
+    assert.equal(
+      readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8'),
+      'allowBuilds:\n  node-pty: true\n  ssh2: false\n',
+    )
   })
 
   it('is a no-op when there is no workspace file', () => {

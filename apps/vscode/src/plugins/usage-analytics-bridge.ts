@@ -33,8 +33,7 @@ export function createVsCodeUsageBridge(opts: VsCodeUsageBridgeOptions): UIBridg
   }
   w.addEventListener?.('message', (event) => {
     const data = (event as { data?: unknown }).data as
-      | { channel?: string; requestId?: string; data?: unknown }
-      | undefined
+      { channel?: string; requestId?: string; data?: unknown } | undefined
     if (!data || data.channel !== 'usage-analytics:response' || !data.requestId) return
     const resolve = pending.get(data.requestId)
     if (resolve) {
@@ -55,8 +54,7 @@ export function createVsCodeUsageBridge(opts: VsCodeUsageBridgeOptions): UIBridg
       // Extension host pushes `usage-analytics:event` messages.
       const handler = (event: unknown) => {
         const data = (event as { data?: unknown }).data as
-          | { channel?: string; topic?: string; payload?: unknown }
-          | undefined
+          { channel?: string; topic?: string; payload?: unknown } | undefined
         if (data?.channel === 'usage-analytics:event' && data.topic === topic) cb(data.payload)
       }
       w.addEventListener?.('message', handler)

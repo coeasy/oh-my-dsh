@@ -67,6 +67,11 @@ export const FIRST_PARTY_PLUGINS: readonly FirstPartyDef[] = [
     devDir: 'plugins/usage-analytics',
     prodDir: 'bundled-plugins/plugin-usage-analytics',
   },
+  {
+    name: '@dsh/plugin-desktop-bridge',
+    devDir: 'plugins/desktop-bridge',
+    prodDir: 'bundled-plugins/plugin-desktop-bridge',
+  },
 ]
 
 /** Resolve the first-party plugins from the packaged resources root. */

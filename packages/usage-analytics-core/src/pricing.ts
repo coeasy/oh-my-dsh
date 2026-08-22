@@ -47,8 +47,13 @@ export interface CostResult {
   }
 }
 
-export function estimateCost(table: PriceTable, model_id: string | null, input: CostInput): CostResult {
-  const entry = (model_id && table.models[model_id]) || table.default || { input_per_mtok: 0, output_per_mtok: 0 }
+export function estimateCost(
+  table: PriceTable,
+  model_id: string | null,
+  input: CostInput,
+): CostResult {
+  const entry = (model_id && table.models[model_id]) ||
+    table.default || { input_per_mtok: 0, output_per_mtok: 0 }
   let value = 0
   const components = { input: false, output: false, cache_read: false, cache_write: false }
   if (input.input_tokens !== null && entry.input_per_mtok > 0) {
@@ -59,11 +64,19 @@ export function estimateCost(table: PriceTable, model_id: string | null, input: 
     value += (input.output_tokens / 1_000_000) * entry.output_per_mtok
     components.output = true
   }
-  if (input.cache_read_tokens !== null && entry.cache_read_per_mtok !== undefined && entry.cache_read_per_mtok > 0) {
+  if (
+    input.cache_read_tokens !== null &&
+    entry.cache_read_per_mtok !== undefined &&
+    entry.cache_read_per_mtok > 0
+  ) {
     value += (input.cache_read_tokens / 1_000_000) * entry.cache_read_per_mtok
     components.cache_read = true
   }
-  if (input.cache_write_tokens !== null && entry.cache_write_per_mtok !== undefined && entry.cache_write_per_mtok > 0) {
+  if (
+    input.cache_write_tokens !== null &&
+    entry.cache_write_per_mtok !== undefined &&
+    entry.cache_write_per_mtok > 0
+  ) {
     value += (input.cache_write_tokens / 1_000_000) * entry.cache_write_per_mtok
     components.cache_write = true
   }
@@ -94,7 +107,8 @@ export function validatePriceTable(t: unknown): string[] {
       }
       const e = entry as Record<string, unknown>
       for (const key of ['input_per_mtok', 'output_per_mtok']) {
-        if (typeof e[key] !== 'number' || e[key] < 0) problems.push(`${model}.${key} must be a non-negative number`)
+        if (typeof e[key] !== 'number' || e[key] < 0)
+          problems.push(`${model}.${key} must be a non-negative number`)
       }
     }
   }

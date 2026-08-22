@@ -19,6 +19,36 @@ import { isRelocatablePosixLauncher, isRelocatableWinLauncher } from './engine-l
 import { findReparsePath } from './flatten-harness.mjs'
 import { assertAlignedVersions } from './product-version.mjs'
 
+/**
+ * Blocking sleep in milliseconds; used to give the OS a beat to release
+ * directory handles after reaping stray processes (Node has no sync sleep).
+ */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * Windows cannot rename a directory while any executable inside it is still
+ * running: a leftover `my-dsh.exe` from a previous pack/E2E run keeps the
+ * unpacked dir locked (rename → EBUSY/EPERM). Reap exactly those processes,
+ * matched strictly by their executable path under our own output dir — user
+ * application installs live elsewhere and are never touched.
+ */
+function reapStrayAppProcesses(dir) {
+  if (platform !== 'win32' || !existsSync(dir)) return
+  const like = `${dir.replace(/\\/g, '\\\\')}\\\\*`
+  spawnSync(
+    'powershell',
+    [
+      '-NoProfile',
+      '-Command',
+      `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like '${like}' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+    ],
+    { windowsHide: true, timeout: 20_000, stdio: 'ignore' },
+  )
+  sleepSync(400)
+}
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const appDir = join(root, 'apps', 'desktop')
 // `DSH_ELECTRON_OUTPUT` lets the dual-edition build keep each edition's
@@ -159,12 +189,15 @@ let unpackedOut =
     : join(electronOutDir, 'linux-unpacked')
 if (platform !== 'darwin' && existsSync(unpackedOut)) {
   const stale = `${unpackedOut}.stale-${Date.now()}`
+  // A packaged app left running from a prior pack/E2E run holds win-unpacked;
+  // reap only processes launched from our own output path first.
+  reapStrayAppProcesses(unpackedOut)
   try {
     renameSync(unpackedOut, stale)
     console.log(`pack:desktop: renamed previous unpack to ${stale}`)
   } catch (error) {
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
-    if (code !== 'EPERM' && code !== 'EACCES') throw error
+    if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') throw error
     electronOutDir = join(outDir, `build-${Date.now()}`)
     unpackedOut =
       platform === 'win32'
@@ -301,6 +334,58 @@ if (
     `pack:desktop missing ${artifactPrefix} AppImage for ${version} in ${electronOutDir}`,
   )
 }
+
+// Signing is fully opt-in and driven by CI/build environment:
+//   - Windows: electron-builder signs when CSC_LINK (+ CSC_KEY_PASSWORD) is set.
+//   - macOS:   electron-builder signs/notarizes when a Developer ID identity is
+//              available (remove `mac.identity: null` and set APPLE_* when needed).
+// Setting DSH_SIGN=1 makes the build FAIL if the produced artifacts are not
+// actually signed, so an accidental unsigned release can never ship silently.
+function verifySignatures() {
+  if (process.env.DSH_SIGN !== '1') return
+  const verify = (script, args) => {
+    const result = spawnSync(process.execPath, [join(root, 'scripts', script), ...args], {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 120_000,
+      stdio: 'inherit',
+    })
+    if (result.status !== 0) {
+      throw new Error(`pack:desktop: signature verification failed (${script} ${args.join(' ')})`)
+    }
+  }
+  if (platform === 'win32') {
+    if (targets.includes('nsis') && existsSync(join(electronOutDir, setupName))) {
+      verify('check-signature.mjs', [join(electronOutDir, setupName)])
+    }
+    if (targets.includes('portable') && existsSync(join(electronOutDir, portableName))) {
+      verify('check-signature.mjs', [join(electronOutDir, portableName)])
+    }
+    return
+  }
+  if (platform === 'darwin') {
+    // Verify every produced .app bundle (dmg + zip reuse the same signed app).
+    const macDir = unpackedAppOutDir()
+    const appPath = join(macDir, '..')
+    const codesign = spawnSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 120_000,
+      stdio: 'inherit',
+    })
+    if (codesign.status !== 0) {
+      throw new Error(`pack:desktop: macOS app is not signed: ${appPath}`)
+    }
+    return
+  }
+  // Linux (AppImage/zip) does not require signing.
+}
+
+// Fail fast when DSH_SIGN=1 but the produced artifacts are not actually signed,
+// so an accidental unsigned release can never ship silently.
+verifySignatures()
 
 const sums = spawnSync(
   process.execPath,

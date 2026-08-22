@@ -1,0 +1,49 @@
+{
+  "name": "@dsh/plugin-desktop-bridge",
+  "version": "0.1.0-build.83664662",
+  "private": true,
+  "type": "module",
+  "description": "Desktop shell bridge: registers official sidebar.footer.action entry buttons that open the first-party config panels via the window.dshDesktop bridge.",
+  "main": "./out/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./out/index.js"
+    },
+    "./client": {
+      "types": "./src/client/index.ts",
+      "default": "./client/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build:host": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=out/index.js",
+    "build:client": "tsdown",
+    "build": "pnpm run build:host && pnpm run build:client"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "files": [
+    "out",
+    "client",
+    "cordis.patch.yml",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "@types/react": "~18.3.1",
+    "esbuild": "^0.28.2",
+    "react": "~18.3.1",
+    "tsdown": "^0.22.14"
+  }
+}

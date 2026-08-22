@@ -13,6 +13,7 @@ const PHASE_LABEL: Record<'en' | 'zh', Record<RuntimePhase, string>> = {
     starting: 'Starting',
     ready: 'Running',
     stopping: 'Stopping',
+    restarting: 'Restarting',
     failed: 'Failed',
   },
   zh: {
@@ -20,6 +21,7 @@ const PHASE_LABEL: Record<'en' | 'zh', Record<RuntimePhase, string>> = {
     starting: '正在启动',
     ready: '运行中',
     stopping: '正在退出',
+    restarting: '正在重启',
     failed: '启动失败',
   },
 }

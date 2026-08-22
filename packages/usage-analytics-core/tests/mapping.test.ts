@@ -126,11 +126,14 @@ describe('applyUsageMapping', () => {
 
 describe('validateMappingConfig', () => {
   it('accepts a valid declarative config', () => {
-    assert.deepEqual(validateMappingConfig({
-      id: 'p',
-      usage: { input_tokens: ['$.usage.prompt_tokens'] },
-      streaming: { strategy: 'final_usage_preferred' },
-    }), [])
+    assert.deepEqual(
+      validateMappingConfig({
+        id: 'p',
+        usage: { input_tokens: ['$.usage.prompt_tokens'] },
+        streaming: { strategy: 'final_usage_preferred' },
+      }),
+      [],
+    )
   })
   it('rejects executable fields', () => {
     const problems = validateMappingConfig({ id: 'p', usage: {}, code: 'evil()' })

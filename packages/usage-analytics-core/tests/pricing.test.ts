@@ -22,7 +22,12 @@ describe('estimateCost', () => {
     })
     assert.equal(r.value, 1 + 1 + 0.1)
     assert.equal(r.currency, 'USD')
-    assert.deepEqual(r.components, { input: true, output: true, cache_read: true, cache_write: false })
+    assert.deepEqual(r.components, {
+      input: true,
+      output: true,
+      cache_read: true,
+      cache_write: false,
+    })
   })
 
   it('falls back to default pricing for unknown model', () => {
@@ -66,7 +71,13 @@ describe('validatePriceTable', () => {
     assert.ok(validatePriceTable({ id: 'x', version: 'v1', models: {} }).length > 0)
   })
   it('rejects executable fields', () => {
-    const problems = validatePriceTable({ id: 'x', version: 'v1', currency: 'USD', models: {}, fn: 'evil' })
+    const problems = validatePriceTable({
+      id: 'x',
+      version: 'v1',
+      currency: 'USD',
+      models: {},
+      fn: 'evil',
+    })
     assert.ok(problems.some((p) => p.includes('executable')))
   })
 })

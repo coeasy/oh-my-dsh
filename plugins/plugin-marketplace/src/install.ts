@@ -268,7 +268,9 @@ export async function runOfficialAdd(
 
 /** Canonical lowercase key for a path, for dedup across separators. */
 function homeKey(path: string): string {
-  return resolve(path).toLowerCase().replace(/[\\/]+$/u, '')
+  return resolve(path)
+    .toLowerCase()
+    .replace(/[\\/]+$/u, '')
 }
 
 /**
@@ -386,7 +388,12 @@ export async function syncToMirrors(
   for (const path of mirrors) {
     let outcome: MirrorAction
     if (opts.action === 'toggle') {
-      const toggle = writePatchToggle(opts.profile, path, opts.bundleId ?? '', opts.disabled === true)
+      const toggle = writePatchToggle(
+        opts.profile,
+        path,
+        opts.bundleId ?? '',
+        opts.disabled === true,
+      )
       outcome = {
         path,
         ok: toggle.ok,
@@ -402,7 +409,9 @@ export async function syncToMirrors(
         error: result.code === 0 ? undefined : `${result.stdout}${result.stderr}`.slice(-400),
       }
     } else if (opts.action === 'remove') {
-      const result = await runPluginCommand(opts.profile, ['remove', opts.spec ?? ''], { home: path })
+      const result = await runPluginCommand(opts.profile, ['remove', opts.spec ?? ''], {
+        home: path,
+      })
       // pnpm remove on a package the mirror never had is a benign no-op; treat
       // the mirror as converged when the package is gone from its manifest.
       const state = readOfficialState(opts.profile, path)
@@ -412,9 +421,7 @@ export async function syncToMirrors(
         ok: result.code === 0 || gone,
         action: 'remove',
         error:
-          result.code === 0 || gone
-            ? undefined
-            : `${result.stdout}${result.stderr}`.slice(-400),
+          result.code === 0 || gone ? undefined : `${result.stdout}${result.stderr}`.slice(-400),
       }
     } else {
       // A mirror directory may not exist yet (official home, fresh machine) —
@@ -660,7 +667,10 @@ export function specsEquivalent(a: string, b: string): boolean {
   const pa = String(a ?? '').trim()
   const pb = String(b ?? '').trim()
   if (pa === pb) return true
-  if (/^(file:|github:|link:|workspace:)/u.test(pa) || /^(file:|github:|link:|workspace:)/u.test(pb)) {
+  if (
+    /^(file:|github:|link:|workspace:)/u.test(pa) ||
+    /^(file:|github:|link:|workspace:)/u.test(pb)
+  ) {
     return false
   }
   const av = parseVersion(pa)

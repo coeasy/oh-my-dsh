@@ -28,6 +28,14 @@ describe('preload exposure surface (C3)', () => {
     'usageAnalytics',
     'modelConfig',
     'degenerationGuard',
+    'pluginConfigOpen',
+    'pluginConfigClose',
+    'mobileOpenPairing',
+    'mobileStatus',
+    'engineCheckUpdate',
+    'engineActivity',
+    'engineActivate',
+    'engineRollback',
   ]
 
   it('exposes exactly the allowlisted dshDesktop methods', () => {
@@ -63,9 +71,17 @@ describe('preload exposure surface (C3)', () => {
       'model-config:action',
       'degeneration-guard:action',
       'plugin-config:open',
+      'plugin-config:close',
+      'engine:check-update',
+      'engine:activity',
+      'engine:activate',
+      'engine:rollback',
     ])
     const channels = [...preload.matchAll(/ipcRenderer\.invoke\('([^']+)'/g)].map((m) => m[1])
-    assert.ok(channels.length >= EXPOSED_METHODS.length + 1, 'expected several invoke call sites')
+    assert.ok(
+      channels.length >= EXPOSED_METHODS.length,
+      'expected one invoke call site per exposed method',
+    )
     for (const channel of channels) {
       assert.ok(ALLOWED.has(channel), `unexpected IPC channel in preload: ${channel}`)
     }
@@ -102,23 +118,27 @@ describe('window security flags (C3)', () => {
   })
 })
 
-describe('sidebar DOM bridge', () => {
-  it('projects data-dsh-sidebar-* attributes from the real CSS-module sidebar', () => {
-    // Upstream never renders data-dsh-sidebar-*; without the bridge every
-    // plugin mount silently no-ops and the plugins vanish from the UI.
-    assert.match(preload, /function syncSidebarAttributes\(\)/, 'bridge function missing')
-    assert.match(preload, /\[class\*="footArea"\]/, 'bridge must anchor on the hashed footArea class')
-    assert.match(
-      preload,
-      /setAttribute\('data-dsh-sidebar-(footer|root|wide)'/,
-      'bridge must project the data-dsh-sidebar-* attributes',
-    )
-    // The bridge must run before every mount and on DOM mutations.
-    assert.match(preload, /syncSidebarAttributes\(\)\s*\n\s*mountMobileButton\(\)/)
-    assert.match(
-      preload,
-      /sidebarObserver\.observe\(document\.documentElement,[\s\S]*?attributeFilter: \['class'\]/,
-      'observer must watch real class mutations, not the projected attribute',
-    )
+describe('sidebar DOM injection removed (A2)', () => {
+  it('no longer injects the sidebar buttons via DOM / hashed CSS-class anchors', () => {
+    // A1/A2 moved the footer entry buttons (model-config / degeneration-guard /
+    // usage-analytics / mobile-pairing) into the official sidebar.footer.action
+    // slot via the desktop-bridge client plugin. The preload must no longer
+    // mutate the sidebar DOM or depend on CSS-module hashed class names.
+    const disallowed = [
+      /function syncSidebarAttributes\(\)/,
+      /function mountMobileButton\(\)/,
+      /function mountPluginConfigEntries\(\)/,
+      /\[class\*="footArea"\]/,
+      /data-dsh-sidebar-(footer|root|wide)/,
+      /sidebarObserver\.observe/,
+      /queueSidebarSync/,
+    ]
+    for (const re of disallowed) {
+      assert.doesNotMatch(preload, re, `sidebar DOM injection residue: ${re}`)
+    }
+    // Keyboard/status entry points still go through the bridge, not the DOM.
+    assert.match(preload, /mobileOpenPairing:/)
+    assert.match(preload, /mobileStatus:/)
+    assert.match(preload, /pluginConfigOpen:/)
   })
 })

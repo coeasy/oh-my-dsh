@@ -31,7 +31,11 @@ const writeWebProfile = (home: string, deps = 0, bundles = 0): void => {
   const bundleList = Array.from({ length: bundles }, (_, i) => `@acme/b${i}`)
   writeFileSync(
     join(dir, 'package.json'),
-    JSON.stringify({ name: 'dsh-profile-web', dependencies, dsh: { profile: { bundles: bundleList } } }),
+    JSON.stringify({
+      name: 'dsh-profile-web',
+      dependencies,
+      dsh: { profile: { bundles: bundleList } },
+    }),
   )
 }
 
@@ -52,10 +56,7 @@ describe('resolveHarnessHome', () => {
   })
   it('official mode → official home', () => {
     const userData = tmp()
-    assert.equal(
-      resolveHarnessHome('official', userData, { DSH_HOME: 'C:/o' }),
-      'C:\\o',
-    )
+    assert.equal(resolveHarnessHome('official', userData, { DSH_HOME: 'C:/o' }), 'C:\\o')
   })
   it('explicit path wins', () => {
     const userData = tmp()
@@ -73,7 +74,10 @@ describe('resolveHarnessHome', () => {
     writeWebProfile(join(userData, 'harness'), 0, 3)
     const official = join(tmp(), '.dsh')
     writeWebProfile(official, 0, 0) // exists but no bundles
-    assert.equal(resolveHarnessHome('auto', userData, { DSH_HOME: official }), join(userData, 'harness'))
+    assert.equal(
+      resolveHarnessHome('auto', userData, { DSH_HOME: official }),
+      join(userData, 'harness'),
+    )
   })
 })
 
@@ -114,11 +118,7 @@ describe('resolvePluginHomes', () => {
     writeWebProfile(official, 0, 1)
     // harnessHome='official' must make the engine home AND the plugin primary
     // the same directory — never 'auto'.
-    const homes = resolvePluginHomes(
-      userData,
-      { harnessHome: 'official' },
-      { DSH_HOME: official },
-    )
+    const homes = resolvePluginHomes(userData, { harnessHome: 'official' }, { DSH_HOME: official })
     assert.equal(homes.primary, official)
     assert.ok(!homes.mirrors.includes(official))
   })

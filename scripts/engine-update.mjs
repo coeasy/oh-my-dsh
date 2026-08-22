@@ -9,13 +9,12 @@
  * Never edits kernel sources. Safe to re-run: when already on the newest ref
  * it prints "already up to date" and exits 0.
  */
-import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadEngineLock, writeEngineLock } from './engine-lock.mjs'
 import { defaultEngineRoot } from './engine-root.mjs'
-import { githubAuthToken, resolveEngineRef } from './github-engine.mjs'
+import { resolveEngineRef } from './github-engine.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const channel = (process.argv[2] || process.env.DSH_ENGINE_CHANNEL || 'latest').trim().toLowerCase()

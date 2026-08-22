@@ -1,6 +1,6 @@
 {
   "name": "@dsh/plugin-model-config",
-  "version": "0.1.0-build.fa7b81b5",
+  "version": "0.1.0-build.0b57b12d",
   "private": true,
   "type": "module",
   "description": "Cordis bundle: per-stage model routing (default/planning/subagent/evaluation), reasoning effort, and Profiles.",

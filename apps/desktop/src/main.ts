@@ -49,10 +49,7 @@ import {
   firstPartyPluginsFromRepo,
   firstPartyPluginsFromResources,
 } from './first-party-plugins.ts'
-import {
-  disableCommunityBundles,
-  disableNewestCommunityBundlesMany,
-} from './plugin-recovery.ts'
+import { disableCommunityBundles, disableNewestCommunityBundlesMany } from './plugin-recovery.ts'
 import {
   discoverHarnessHomes,
   importHarnessHome,
@@ -105,10 +102,17 @@ import { secureWindow } from './security.ts'
 import { initObservability, logInfo, logWarn } from './observability.ts'
 import { isNewerVersion, parseGithubRepo } from './updates.ts'
 import {
+  activateEngineVersion,
+  clearActiveEngineVersion,
   downloadEnginePayload,
+  engineLauncherName,
   engineVersionDir,
   parseEngineUpdateManifest,
   parseLatestRelease,
+  resolveActiveEngineDir,
+  rollbackCandidate,
+  writeActiveEngineVersion,
+  type EngineUpdateManifest,
 } from './engine-updater.ts'
 import {
   desktopChromeOptions,
@@ -392,11 +396,7 @@ async function quitAll(): Promise<void> {
  * reopening somewhere the user cannot see it.
  */
 function usableWindowBounds(bounds: WindowBounds | undefined): WindowBounds | undefined {
-  if (
-    !bounds ||
-    typeof bounds.width !== 'number' ||
-    typeof bounds.height !== 'number'
-  ) {
+  if (!bounds || typeof bounds.width !== 'number' || typeof bounds.height !== 'number') {
     return undefined
   }
   const MIN_VISIBLE = 80
@@ -407,10 +407,8 @@ function usableWindowBounds(bounds: WindowBounds | undefined): WindowBounds | un
     height: bounds.height,
   }).workArea
   if (bounds.x !== undefined && bounds.y !== undefined) {
-    const visibleW =
-      Math.min(bounds.x + bounds.width, wa.x + wa.width) - Math.max(bounds.x, wa.x)
-    const visibleH =
-      Math.min(bounds.y + bounds.height, wa.y + wa.height) - Math.max(bounds.y, wa.y)
+    const visibleW = Math.min(bounds.x + bounds.width, wa.x + wa.width) - Math.max(bounds.x, wa.x)
+    const visibleH = Math.min(bounds.y + bounds.height, wa.y + wa.height) - Math.max(bounds.y, wa.y)
     if (visibleW < MIN_VISIBLE || visibleH < MIN_VISIBLE) return undefined
   }
   return bounds
@@ -649,14 +647,16 @@ async function launchHarness(): Promise<void> {
     rememberEngine(undefined)
   }
   const bundled = loadBundledRuntime()
-  const engine = resolveEngineLaunch({
-    packaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    moduleDir: moduleDir(),
-    repoRoot: repoRoot(),
-    env: process.env,
-    runtime: bundled,
-  })
+  const engine = overrideEngineWithCache(
+    resolveEngineLaunch({
+      packaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      moduleDir: moduleDir(),
+      repoRoot: repoRoot(),
+      env: process.env,
+      runtime: bundled,
+    }),
+  )
   if (engine.cloneBin && engine.dshCommand) {
     writeDevLauncher({ command: engine.dshCommand, cloneBin: engine.cloneBin })
   }
@@ -809,9 +809,10 @@ async function launchHarness(): Promise<void> {
           // Fire-and-forget: a modal here would block the background plugin
           // provisioning below until the user clicks, so built-in plugins
           // would never install on first launch.
-          void (mainWindow && !mainWindow.isDestroyed()
-            ? dialog.showMessageBox(mainWindow, opts)
-            : dialog.showMessageBox(opts)
+          void (
+            mainWindow && !mainWindow.isDestroyed()
+              ? dialog.showMessageBox(mainWindow, opts)
+              : dialog.showMessageBox(opts)
           ).catch(() => {})
         }
         if (quitting) return
@@ -819,15 +820,10 @@ async function launchHarness(): Promise<void> {
         // degeneration-guard / usage-analytics are installed (and current) in
         // every plugin home, from the copy bundled with THIS client —
         // portable across machines (resources when packaged, repo in dev).
-        await ensureFirstPartyPlugins(
-          dshCommand,
-          firstParty,
-          homes,
-          (level, message) => {
-            if (level === 'warn') logWarn(message)
-            else logInfo(message)
-          },
-        )
+        await ensureFirstPartyPlugins(dshCommand, firstParty, homes, (level, message) => {
+          if (level === 'warn') logWarn(message)
+          else logInfo(message)
+        })
       })().catch((error) => {
         logWarn(`plugin bootstrap background task failed: ${String(error)}`)
       })
@@ -852,7 +848,10 @@ async function launchHarness(): Promise<void> {
         app.getPath('userData'),
         loadDesktopSettings(app.getPath('userData')),
       )
-      const recovery = disableNewestCommunityBundlesMany([pluginHomes.primary, ...pluginHomes.mirrors])
+      const recovery = disableNewestCommunityBundlesMany([
+        pluginHomes.primary,
+        ...pluginHomes.mirrors,
+      ])
       const fused = recovery.results.filter((r) => r.ok && r.disabled.length > 0)
       const allDisabled = fused.flatMap((r) => r.disabled)
       if (allDisabled.length > 0) {
@@ -926,13 +925,12 @@ async function showRuntimeFailure(snapshot: RuntimeSnapshot): Promise<void> {
           loadDesktopSettings(app.getPath('userData')),
         )
         const recovery = disableCommunityBundles(pluginHomes.primary)
-        for (const mirror of pluginHomes.mirrors)
-          disableCommunityBundles(mirror)
+        for (const mirror of pluginHomes.mirrors) disableCommunityBundles(mirror)
         const detail = recovery.ok
           ? zh
             ? `已禁用：${recovery.disabled.join(', ')}（主目录 + ${pluginHomes.mirrors.length} 个镜像目录）。依赖保留，重新安装可再次注册。`
             : `Disabled: ${recovery.disabled.join(', ')} (primary + ${pluginHomes.mirrors.length} mirror(s)). Dependencies kept; reinstall to re-register.`
-          : recovery.error ?? 'recovery failed'
+          : (recovery.error ?? 'recovery failed')
         const info: Electron.MessageBoxOptions = {
           type: recovery.ok ? 'info' : 'warning',
           message: zh ? '已禁用新装插件' : 'Community plugins disabled',
@@ -1197,10 +1195,13 @@ async function showPluginConfigView(plugin: string): Promise<void> {
 }
 
 function closeAllPluginConfigWindows(): void {
-  for (const window of pluginConfigWindows.values()) {
-    if (!window.isDestroyed()) window.destroy()
+  for (const view of pluginConfigViews.values()) {
+    if (view.webContents.isDestroyed()) continue
+    mainWindow?.contentView.removeChildView(view)
+    view.webContents.close()
   }
-  pluginConfigWindows.clear()
+  pluginConfigViews.clear()
+  activePluginConfig = null
 }
 
 async function chooseFolder(): Promise<string | undefined> {
@@ -1249,6 +1250,108 @@ async function exportDiagnostics(): Promise<void> {
   shell.showItemInFolder(dest)
 }
 
+/** Bundled engine ref that ships inside the client resources. */
+const BUNDLED_ENGINE_VERSION = '0.1.0'
+
+function engineCacheRoot(): string {
+  return join(app.getPath('userData'), 'engine-cache')
+}
+
+/** Download manifest awaiting an explicit activation/restart step (if any). */
+let pendingEngineUpdate: EngineUpdateManifest | undefined
+
+/** Use the cache as the live engine when a newer/pinned version is usable. */
+function overrideEngineWithCache(
+  engine: ReturnType<typeof resolveEngineLaunch>,
+): ReturnType<typeof resolveEngineLaunch> {
+  const active = resolveActiveEngineDir(engineCacheRoot(), BUNDLED_ENGINE_VERSION)
+  if (!active) return engine
+  const launcher = join(active.dir, engineLauncherName(process.platform))
+  if (!existsSync(launcher)) return engine
+  return { ...engine, dshCommand: launcher }
+}
+
+function engineStatusMessage(): {
+  activeVersion?: string
+  pendingVersion?: string
+  rollbackAvailable: boolean
+  hasNewer: boolean
+} {
+  const cacheRoot = engineCacheRoot()
+  const active = resolveActiveEngineDir(cacheRoot, BUNDLED_ENGINE_VERSION)
+  const rollbackAvailable =
+    (active && Boolean(rollbackCandidate(cacheRoot, active.version))) || Boolean(active)
+  return {
+    activeVersion: active?.version,
+    pendingVersion: pendingEngineUpdate?.version,
+    rollbackAvailable,
+    hasNewer: Boolean(active),
+  }
+}
+
+/** Extract + pin a downloaded engine version, then restart the shell. */
+async function applyEngineActivation(version: string): Promise<string> {
+  const msg = await applyEngineActivationCore(version)
+  await performEngineRestart()
+  return msg
+}
+
+async function applyEngineActivationCore(version: string): Promise<string> {
+  const isChinese = harnessLocale() === 'zh'
+  let info: { dir: string; entries: number }
+  try {
+    info = activateEngineVersion({ cacheRoot: engineCacheRoot(), version })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    if (isChinese) return `激活失败：${detail}`
+    return `Activation failed: ${detail}`
+  }
+  if (isChinese) {
+    return `引擎 ${version} 已解压并激活，正在重启（${info.entries} 个文件）。`
+  }
+  return `Engine ${version} extracted and activated (${info.entries} entries); restarting.`
+}
+
+/** Resolve the previous usable engine and relaunch with it. */
+async function applyEngineRollback(): Promise<string> {
+  const isChinese = harnessLocale() === 'zh'
+  const cacheRoot = engineCacheRoot()
+  const active = resolveActiveEngineDir(cacheRoot, BUNDLED_ENGINE_VERSION)
+  const previous = active ? rollbackCandidate(cacheRoot, active.version) : undefined
+  let target: string
+  if (previous) {
+    const version = previous.split(/[\\/]/u).pop() ?? ''
+    writeActiveEngineVersion(cacheRoot, version)
+    target = isChinese
+      ? `已回滚到引擎 ${version}，正在重启。`
+      : `Rolled back to engine ${version}; restarting.`
+  } else {
+    clearActiveEngineVersion(cacheRoot)
+    target = isChinese
+      ? '未找到更早的本地引擎，已恢复使用内置引擎，正在重启。'
+      : 'No older local engine found; restored the bundled engine and restarting.'
+  }
+  await performEngineRestart()
+  return target
+}
+
+/** Stop the engine and relaunch the desktop shell so a new engine boots. */
+async function performEngineRestart(): Promise<void> {
+  publishSnapshot({
+    phase: 'restarting',
+    message: 'Restarting to apply engine change…',
+    logs: [],
+    launchDirectory,
+  })
+  if (host) {
+    await host.stop().catch(() => undefined)
+    rememberEngine(undefined)
+    host = undefined
+  }
+  app.relaunch()
+  app.exit(0)
+}
+
 async function checkForEngineUpdate(interactive: boolean): Promise<string> {
   const repo = parseGithubRepo(process.env.DSH_GITHUB_REPO)
   const isChinese = harnessLocale() === 'zh'
@@ -1270,8 +1373,8 @@ async function checkForEngineUpdate(interactive: boolean): Promise<string> {
     if (interactive) await dialog.showMessageBox({ type: 'info', message: msg, buttons: ['OK'] })
     return msg
   }
-  const cacheRoot = join(app.getPath('userData'), 'engine-cache')
-  const bundledRef = '0.1.0'
+  const cacheRoot = engineCacheRoot()
+  const bundledRef = BUNDLED_ENGINE_VERSION
   if (!isNewerVersion(latest.ref, bundledRef)) {
     const msg = isChinese ? `引擎已是 ${bundledRef}。` : `Engine is up to date (${bundledRef}).`
     if (interactive) await dialog.showMessageBox({ type: 'info', message: msg, buttons: ['OK'] })
@@ -1314,12 +1417,35 @@ async function checkForEngineUpdate(interactive: boolean): Promise<string> {
     checksum: manifest.checksum,
     fetchImpl: (u, init) => net.fetch(u instanceof URL ? u.href : u, init),
   })
+  pendingEngineUpdate = manifest
+  if (!interactive) {
+    return `Engine ${manifest.version} downloaded and verified; activation is pending.`
+  }
   const dir = engineVersionDir(cacheRoot, manifest.version)
-  const msg = isChinese
-    ? `引擎 ${manifest.version} 已下载并校验，等待后续激活：${dir}`
-    : `Engine ${manifest.version} downloaded and verified; activation is pending: ${dir}`
-  if (interactive) await dialog.showMessageBox({ type: 'info', message: msg, buttons: ['OK'] })
-  return msg
+  const options: MessageBoxOptions = {
+    type: 'question',
+    title: isChinese ? '引擎更新就绪' : 'Engine update ready',
+    message: isChinese
+      ? `引擎 ${manifest.version} 已下载并校验。激活后需要重启，是否现在激活？`
+      : `Engine ${manifest.version} is downloaded and verified. Activate and restart?`,
+    detail: isChinese
+      ? `下载目录：${dir}\n激活后将立即重启以加载新引擎。`
+      : `Cache: ${dir}\nActivating relaunches the shell to load the new engine.`,
+    buttons: isChinese ? ['现在激活并重启', '稍后'] : ['Activate & restart', 'Later'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  }
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options)
+  if (result.response !== 0) {
+    const msg = isChinese
+      ? `引擎 ${manifest.version} 已下载并校验，等待后续激活。`
+      : `Engine ${manifest.version} downloaded and verified; activation is pending.`
+    return msg
+  }
+  return applyEngineActivation(manifest.version)
 }
 
 async function showSetupIfNeeded(fallback: string): Promise<void> {
@@ -1390,6 +1516,30 @@ function installIpc(): void {
   ipcMain.handle('engine:check-update', () =>
     checkForEngineUpdate(true).catch((e) => (e instanceof Error ? e.message : String(e))),
   )
+  ipcMain.handle('engine:activity', () => {
+    const pending = pendingEngineUpdate
+    const status = engineStatusMessage()
+    return {
+      ...status,
+      pendingVersion: pending?.version ?? status.pendingVersion,
+      pendingChecksum: pending?.checksum,
+      bundledVersion: BUNDLED_ENGINE_VERSION,
+      cacheRoot: engineCacheRoot(),
+    }
+  })
+  ipcMain.handle('engine:activate', () => {
+    const pending = pendingEngineUpdate
+    if (!pending) {
+      const isChinese = harnessLocale() === 'zh'
+      return isChinese ? '尚未下载新的引擎包。' : 'No pending engine download to activate.'
+    }
+    return applyEngineActivation(pending.version).catch((e) =>
+      e instanceof Error ? e.message : String(e),
+    )
+  })
+  ipcMain.handle('engine:rollback', () =>
+    applyEngineRollback().catch((e) => (e instanceof Error ? e.message : String(e))),
+  )
   ipcMain.handle('mobile:open-pairing', () => showMobilePairing())
   ipcMain.handle('mobile:status', () => ({
     connected: mobileBridge?.snapshot().connected === true,
@@ -1435,7 +1585,8 @@ function installIpc(): void {
       typeof payload === 'object' && payload !== null && 'plugin' in payload
         ? String((payload as { plugin?: unknown }).plugin ?? '')
         : ''
-    if (!PLUGIN_CONFIG_PAGES[plugin]) return { ok: false, error: `unknown plugin config: ${plugin}` }
+    if (!PLUGIN_CONFIG_PAGES[plugin])
+      return { ok: false, error: `unknown plugin config: ${plugin}` }
     void showPluginConfigView(plugin)
     return { ok: true }
   })
@@ -1466,7 +1617,10 @@ function installIpc(): void {
     return {
       homes,
       current: effectiveHarnessHome(),
-      pluginHomes: resolvePluginHomes(app.getPath('userData'), loadDesktopSettings(app.getPath('userData'))),
+      pluginHomes: resolvePluginHomes(
+        app.getPath('userData'),
+        loadDesktopSettings(app.getPath('userData')),
+      ),
     }
   })
   ipcMain.handle('home:set-homes', (_event, value: unknown) => {

@@ -181,7 +181,10 @@ export function marketBundledVersion(marketPath: string): string | null {
 export function installedPluginVersion(dshHome: string, pkgName: string): string | null {
   try {
     const pkg = JSON.parse(
-      readFileSync(join(dshHome, 'profiles', 'web', 'node_modules', pkgName, 'package.json'), 'utf8'),
+      readFileSync(
+        join(dshHome, 'profiles', 'web', 'node_modules', pkgName, 'package.json'),
+        'utf8',
+      ),
     ) as { version?: string }
     return typeof pkg.version === 'string' && pkg.version.trim() ? pkg.version.trim() : null
   } catch {

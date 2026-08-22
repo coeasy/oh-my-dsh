@@ -34,7 +34,11 @@ export interface VsCodeUsageHostOptions {
     queryEvents(limit: number, offset: number): unknown
     exportUsage(format: 'json' | 'csv'): string
   } | null
-  postMessage: (message: { channel: 'usage-analytics:response'; requestId: string; data: unknown }) => void
+  postMessage: (message: {
+    channel: 'usage-analytics:response'
+    requestId: string
+    data: unknown
+  }) => void
 }
 
 /** Handle one request message and produce a response payload. */

@@ -31,8 +31,9 @@ const writeWebProfile = (
   const dir = join(home, 'profiles', 'web')
   mkdirSync(dir, { recursive: true })
   const dependencies: Record<string, string> = {}
-  for (const dep of deps) dependencies[typeof dep === 'string' ? dep : dep[0]] =
-    typeof dep === 'string' ? '1.0.0' : dep[1]
+  for (const dep of deps)
+    dependencies[typeof dep === 'string' ? dep : dep[0]] =
+      typeof dep === 'string' ? '1.0.0' : dep[1]
   writeFileSync(
     join(dir, 'package.json'),
     JSON.stringify({ name: 'dsh-profile-web', dependencies, dsh: { profile: { bundles } } }),
