@@ -41,9 +41,9 @@
     "LICENSE"
   ],
   "devDependencies": {
-    "@types/react": "~18.3.1",
+    "@types/react": "~19.2.18",
     "esbuild": "^0.28.2",
-    "react": "~18.3.1",
+    "react": "~19.2.8",
     "tsdown": "^0.22.14"
   }
 }
